@@ -16,9 +16,21 @@
     var PRICE = '#9aa3af';
     var INK = '#111318';
 
-    var state = { mode: 'weekly', since: 0, log: true };
+    var state = { mode: 'weekly', range: 'all', since: 0, log: true };
+
+    // The initial view can come from the query string, so a specific window is
+    // linkable: ?range=year or ?mode=daily.
+    (function readInitialState() {
+        var params = new URLSearchParams(window.location.search);
+        var mode = params.get('mode');
+        var range = params.get('range');
+
+        if (mode === 'daily' || mode === 'weekly') state.mode = mode;
+        if (['week', 'month', 'year', 'all'].indexOf(range) !== -1) state.range = range;
+    })();
     var chart = null;
     var requestId = 0;
+    var lastData = null;
 
     var statusEl = document.getElementById('status');
     var subEl = document.getElementById('sub');
@@ -50,7 +62,15 @@
     // ---------------------------------------------------------------- data
     function buildUrl() {
         var q = ['mode=' + encodeURIComponent(state.mode)];
-        if (state.since > 0) q.push('since=' + state.since);
+
+        // A relative range and an absolute year are the same kind of choice:
+        // whichever was clicked last wins.
+        if (state.range !== 'all') {
+            q.push('range=' + encodeURIComponent(state.range));
+        } else if (state.since > 0) {
+            q.push('since=' + state.since);
+        }
+
         return API + '?' + q.join('&');
     }
 
@@ -86,6 +106,7 @@
     }
 
     function draw(data) {
+        lastData = data;
         var labels = data.labels || [];
         var price = data.price || [];
         var ma = data.ma || [];
@@ -94,6 +115,25 @@
             setStatus('No points in this range.', true);
             return;
         }
+
+        // Span decides both the tick format and how much the tooltip repeats.
+        var firstDate = new Date(labels[0] + 'T00:00:00Z');
+        var lastDate = new Date(labels[labels.length - 1] + 'T00:00:00Z');
+        var spanDays = Math.round((lastDate - firstDate) / 86400000) + 1;
+
+        // On a log axis that spans several decades, only labelling powers of ten
+        // keeps it readable. Over a short window the values are all within one
+        // decade, so there are almost no powers of ten to label — there we label
+        // every tick instead.
+        var lo = Infinity, hi = -Infinity;
+        for (var i = 0; i < price.length; i++) {
+            if (price[i] < lo) lo = price[i];
+            if (price[i] > hi) hi = price[i];
+            if (ma[i] !== null && ma[i] < lo) lo = ma[i];
+            if (ma[i] !== null && ma[i] > hi) hi = ma[i];
+        }
+        var orderSpan = (lo > 0 && hi > 0) ? (hi / lo) : 1;
+        var labelEveryTick = !state.log || orderSpan < 100;
 
         var stats = data.stats || {};
         var ratio = stats.ratio || 1;
@@ -163,9 +203,16 @@
                             maxTicksLimit: 9,
                             callback: function (value, index) {
                                 var iso = labels[index];
-                                // One label per year: showing the year of every
-                                // sampled tick reads as a clean timeline.
-                                return iso ? iso.slice(0, 4) : '';
+                                if (!iso) return '';
+
+                                // Over a wide span, label years. Over a short one
+                                // the year repeats, so label the date instead.
+                                if (spanDays > 400) return iso.slice(0, 4);
+
+                                var d = new Date(iso + 'T00:00:00Z');
+                                var months = ['Jan','Feb','Mar','Apr','May','Jun',
+                                              'Jul','Aug','Sep','Oct','Nov','Dec'];
+                                return d.getUTCDate() + ' ' + months[d.getUTCMonth()];
                             }
                         }
                     },
@@ -175,13 +222,16 @@
                         border: { display: false },
                         ticks: {
                             color: '#6b7280',
+                            // A log axis generates 1..9 x 10^n minor ticks, which
+                            // pile up at the low end of a narrow range. Cap the
+                            // count whenever every tick is labelled.
+                            maxTicksLimit: labelEveryTick ? 6 : 10,
                             callback: function (value) {
-                                // On a log axis only label powers of ten, so the
-                                // years of stacked minor ticks stay readable.
-                                if (state.log) {
-                                    var exp = Math.log10(value);
-                                    if (Math.abs(exp - Math.round(exp)) > 1e-9) return '';
-                                }
+                                if (labelEveryTick) return money(value);
+
+                                // Log axis over many decades: powers of ten only.
+                                var exp = Math.log10(value);
+                                if (Math.abs(exp - Math.round(exp)) > 1e-9) return '';
                                 return money(value);
                             }
                         }
@@ -243,6 +293,15 @@
 
     // ------------------------------------------------------------- controls
     function wire() {
+        // Reflect any state supplied by the query string on the buttons before
+        // the first paint, so the selected option matches what was requested.
+        document.querySelectorAll('[data-mode]').forEach(function (b) {
+            b.classList.toggle('is-active', b.dataset.mode === state.mode);
+        });
+        document.querySelectorAll('[data-range]').forEach(function (b) {
+            b.classList.toggle('is-active', b.dataset.range === state.range);
+        });
+
         document.querySelectorAll('[data-mode]').forEach(function (btn) {
             btn.addEventListener('click', function () {
                 document.querySelectorAll('[data-mode]').forEach(function (b) {
@@ -253,12 +312,29 @@
             });
         });
 
+        // Range buttons: relative windows (1W/1M/1Y), absolute years, and All.
+        // All of them are one mutually-exclusive choice, so activating any one
+        // clears the others.
+        function activateRange(btn) {
+            document.querySelectorAll('[data-range], [data-since]').forEach(function (b) {
+                b.classList.toggle('is-active', b === btn);
+            });
+        }
+
+        document.querySelectorAll('[data-range]').forEach(function (btn) {
+            btn.addEventListener('click', function () {
+                activateRange(btn);
+                state.range = btn.dataset.range || 'all';
+                state.since = 0;
+                load();
+            });
+        });
+
         document.querySelectorAll('[data-since]').forEach(function (btn) {
             btn.addEventListener('click', function () {
-                document.querySelectorAll('[data-since]').forEach(function (b) {
-                    b.classList.toggle('is-active', b === btn);
-                });
+                activateRange(btn);
                 state.since = parseInt(btn.dataset.since, 10) || 0;
+                state.range = 'all';
                 load();
             });
         });
@@ -267,11 +343,12 @@
         if (logToggle) {
             logToggle.addEventListener('change', function () {
                 state.log = logToggle.checked;
-                // Only the axis type changed, so redraw from what we already
-                // have rather than re-fetching the series.
-                if (chart) {
-                    chart.options.scales.y.type = state.log ? 'logarithmic' : 'linear';
-                    chart.update('none');
+                // Tick labelling depends on the axis type, so re-render from the
+                // response we already have rather than only flipping the scale.
+                if (lastData) {
+                    draw(lastData);
+                } else {
+                    load();
                 }
             });
         }

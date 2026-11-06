@@ -27,6 +27,16 @@ try {
     $mode = ($_GET['mode'] ?? 'weekly') === 'daily' ? 'daily' : 'weekly';
     $weeks = App::maWeeks();
 
+    // Relative windows are measured back from the last stored day, not from
+    // today: the source can lag, and anchoring to "now" would show a window
+    // with a gap at the right-hand edge.
+    $rangeDays = match (strtolower((string) ($_GET['range'] ?? ''))) {
+        'week'  => 7,
+        'month' => 30,
+        'year'  => 365,
+        default => 0,
+    };
+
     $repo = App::prices();
     $daily = $repo->all();
 
@@ -58,7 +68,16 @@ try {
         }
     }
 
-    if ($since > 0) {
+    if ($rangeDays > 0) {
+        $cutoff = (new DateTimeImmutable($last['date']))
+            ->modify('-' . ($rangeDays - 1) . ' days')
+            ->format('Y-m-d');
+
+        $series = array_values(array_filter(
+            $series,
+            static fn ($r): bool => $r['date'] >= $cutoff
+        ));
+    } elseif ($since > 0) {
         $series = array_values(array_filter(
             $series,
             static fn ($r): bool => (int) substr($r['date'], 0, 4) >= $since
@@ -70,6 +89,7 @@ try {
     echo json_encode([
         'mode'       => $mode,
         'weeks'      => $weeks,
+        'range'      => $rangeDays > 0 ? ($_GET['range'] ?? '') : 'all',
         'from'       => $withMa[0]['date'],
         'to'         => $last['date'],
         'labels'     => array_column($series, 'date'),

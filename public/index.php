@@ -67,7 +67,10 @@ php bin/import.php</pre>
             <button type="button" class="seg-btn" data-mode="daily">1,400-day mean</button>
         </div>
         <div class="seg" role="group" aria-label="Time range">
-            <button type="button" class="seg-btn is-active" data-since="0">All</button>
+            <button type="button" class="seg-btn is-active" data-range="all">All</button>
+            <button type="button" class="seg-btn" data-range="year">1Y</button>
+            <button type="button" class="seg-btn" data-range="month">1M</button>
+            <button type="button" class="seg-btn" data-range="week">1W</button>
             <button type="button" class="seg-btn" data-since="2020">2020+</button>
             <button type="button" class="seg-btn" data-since="2022">2022+</button>
         </div>

@@ -12,8 +12,9 @@ no frameworks and no build step.
 - Computes the 200-week average on request (`/api/series.php`)
 - Renders price and average together, shading the stretches where price traded
   **below** the average
-- Lets you switch between the two common definitions of the average, zoom the
-  time range, and toggle log/linear scaling
+- Lets you switch between the two common definitions of the average, pick a
+  timeframe (1W / 1M / 1Y / all, or from a given year), and toggle log/linear
+  scaling
 
 ## Requirements
 
@@ -45,6 +46,9 @@ php -S localhost:8000 -t public
 ```
 
 Then open <http://localhost:8000>.
+
+The view is also linkable: `?range=year` or `?mode=daily` open straight into
+that selection.
 
 If you use Apache or nginx instead, point the document root at `public/`. The
 only PHP files served directly are `public/index.php` and
@@ -118,10 +122,15 @@ so this is visible rather than assumed.
 
 `GET /api/series.php`
 
-| Parameter | Values            | Default  | Meaning                          |
-|-----------|-------------------|----------|----------------------------------|
-| `mode`    | `weekly`, `daily` | `weekly` | average definition               |
-| `since`   | year, e.g. `2020` | all      | trim the returned window         |
+| Parameter | Values                          | Default  | Meaning                          |
+|-----------|---------------------------------|----------|----------------------------------|
+| `mode`    | `weekly`, `daily`               | `weekly` | average definition               |
+| `range`   | `week`, `month`, `year`         | all      | last 7 / 30 / 365 days           |
+| `since`   | year, e.g. `2020`               | all      | trim from that calendar year     |
+
+`range` is measured back from the **last stored day**, not from today. The
+source can lag, and anchoring to "now" would leave a gap at the right edge of
+the chart. If both `range` and `since` are supplied, `range` wins.
 
 Response:
 
