@@ -34,3 +34,15 @@ CREATE TABLE IF NOT EXISTS import_runs (
 ) ENGINE = InnoDB
   DEFAULT CHARSET = utf8mb4
   COLLATE = utf8mb4_unicode_ci;
+
+-- Small key/value store. Currently holds the observed chain height and when it
+-- was read, which is what the next-halving projection is based on.
+CREATE TABLE IF NOT EXISTS meta (
+    meta_key   VARCHAR(64) NOT NULL,
+    meta_value VARCHAR(255) NOT NULL,
+    updated_at TIMESTAMP   NOT NULL DEFAULT CURRENT_TIMESTAMP
+                                    ON UPDATE CURRENT_TIMESTAMP,
+    PRIMARY KEY (meta_key)
+) ENGINE = InnoDB
+  DEFAULT CHARSET = utf8mb4
+  COLLATE = utf8mb4_unicode_ci;

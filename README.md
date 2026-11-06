@@ -12,6 +12,8 @@ no frameworks and no build step.
 - Computes the 200-week average on request (`/api/series.php`)
 - Renders price and average together, shading the stretches where price traded
   **below** the average
+- Marks every bitcoin halving with a vertical line, and projects the next one
+  from the current chain height
 - Lets you switch between the two common definitions of the average, pick a
   timeframe (1W / 1M / 1Y / all, or from a given year), and toggle log/linear
   scaling
@@ -118,6 +120,38 @@ window counts days rather than observations.
 The source can lag spot by a day or two. The page shows the latest stored day
 so this is visible rather than assumed.
 
+## Halvings
+
+Vertical markers, drawn by a small custom Chart.js plugin (no extra dependency).
+
+Past halvings are facts, taken from the timestamp of the first block of each
+reward era:
+
+| Block     | Date (UTC)          |
+|-----------|---------------------|
+| 210,000   | 2012-11-28 15:24    |
+| 420,000   | 2016-07-09 16:46    |
+| 630,000   | 2020-05-11 19:23    |
+| 840,000   | 2024-04-20 00:09    |
+
+Note the 2024 date is the **20th** in UTC — it is often quoted as the 19th
+because that is the local date in US timezones.
+
+**The next halving is a projection, not a fact.** It happens at block 1,050,000,
+and the date depends on how quickly blocks are found. `bin/import.php` reads the
+current height and stores it; the projection is current height plus the
+remaining blocks at 600 seconds each, marked as an estimate and drawn dashed.
+
+Two consequences worth knowing:
+
+* The next halving is always in the future, so it falls outside the price data.
+  The chart appends empty days to the x-axis to give it a place to sit — but
+  only when that adds at most half the current span. On a 1W view, padding 18
+  months of empty axis would squash the week to a sliver, so the marker is left
+  out and the status line says it is out of range.
+* Re-run the import to refresh the projection. It drifts as the block rate
+  changes; nothing pretends otherwise.
+
 ## API
 
 `GET /api/series.php`
@@ -127,6 +161,9 @@ so this is visible rather than assumed.
 | `mode`    | `weekly`, `daily`               | `weekly` | average definition               |
 | `range`   | `week`, `month`, `year`         | all      | last 7 / 30 / 365 days           |
 | `since`   | year, e.g. `2020`               | all      | trim from that calendar year     |
+
+The `halvings` array in the response is never windowed — the client decides
+which markers fall inside the visible range.
 
 `range` is measured back from the **last stored day**, not from today. The
 source can lag, and anchoring to "now" would leave a gap at the right edge of
@@ -169,10 +206,12 @@ Each run is recorded in `import_runs` with row counts and status.
 
 ```bash
 php tests/MovingAverageTest.php
+php tests/HalvingsTest.php
 ```
 
-17 assertions covering week alignment, exclusion of the partial trailing week,
-and both averaging modes. No dependencies.
+17 assertions on week alignment, exclusion of the partial trailing week, and
+both averaging modes; 20 on the halving schedule and projection. No
+dependencies.
 
 ## Limitations
 

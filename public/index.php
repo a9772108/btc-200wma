@@ -78,11 +78,16 @@ php bin/import.php</pre>
             <input type="checkbox" id="log" checked>
             <span>Log scale</span>
         </label>
+        <label class="toggle">
+            <input type="checkbox" id="halvings" checked>
+            <span>Halvings</span>
+        </label>
     </section>
+
+    <p class="status" id="status"></p>
 
     <figure class="chart-wrap">
         <canvas id="chart" aria-label="Bitcoin price against its <?= (int) $weeks ?>-week moving average" role="img"></canvas>
-        <p class="status" id="status"></p>
     </figure>
 
     <dl class="stats" id="stats"></dl>

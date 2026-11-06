@@ -17,6 +17,7 @@ declare(strict_types=1);
 require dirname(__DIR__, 2) . '/src/App.php';
 
 use Btc200Wma\App;
+use Btc200Wma\Halvings;
 use Btc200Wma\MovingAverage;
 
 header('Content-Type: application/json; charset=utf-8');
@@ -86,10 +87,16 @@ try {
 
     $fmt = static fn (float $v): float => round($v, 2);
 
+    // Halvings are chain facts, not price data, so they are not windowed: the
+    // client decides which ones fall inside the visible x-range.
+    $meta = App::meta();
+    $halvings = Halvings::all($meta->chainHeight(), $meta->chainHeightAt());
+
     echo json_encode([
         'mode'       => $mode,
         'weeks'      => $weeks,
         'range'      => $rangeDays > 0 ? ($_GET['range'] ?? '') : 'all',
+        'halvings'   => $halvings,
         'from'       => $withMa[0]['date'],
         'to'         => $last['date'],
         'labels'     => array_column($series, 'date'),

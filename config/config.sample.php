@@ -24,5 +24,8 @@ return [
         'url'     => 'https://api.blockchain.info/charts/market-price?timespan=all&format=json&sampled=false',
         'timeout' => 90,
         'agent'   => 'btc-200wma/1.0 (+https://github.com/)',
+
+        // Current block height, used only to project the next halving.
+        'height_url' => 'https://blockchain.info/q/getblockcount',
     ],
 ];

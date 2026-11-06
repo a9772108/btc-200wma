@@ -44,6 +44,11 @@ final class App
         return new PriceRepository(Database::connect(self::config()['db']));
     }
 
+    public static function meta(): Meta
+    {
+        return new Meta(Database::connect(self::config()['db']));
+    }
+
     public static function maWeeks(): int
     {
         $weeks = (int) (self::config()['ma_weeks'] ?? 200);
