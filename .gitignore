@@ -1,0 +1,20 @@
+# local configuration with credentials
+/config/config.php
+
+# local dev scratch
+.dev-*.ps1
+.api-test.ps1
+.server.pid
+shot_*.png
+.zoom.png
+public/.frametest.html
+
+# OS / editor
+.DS_Store
+Thumbs.db
+.idea/
+.vscode/
+*.swp
+
+# logs
+*.log

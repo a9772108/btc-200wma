@@ -1,0 +1,219 @@
+/* Bitcoin 200-week MA — deliberately light, no framework. */
+
+:root {
+    --ink: #111318;
+    --muted: #6b7280;
+    --line: #e5e7eb;
+    --bg: #ffffff;
+    --price: #9aa3af;
+    --ma: #f7931a;
+    --below: rgba(247, 147, 26, 0.22);
+    --radius: 10px;
+}
+
+* { box-sizing: border-box; }
+
+html { -webkit-text-size-adjust: 100%; }
+
+html, body { max-width: 100%; }
+
+img, canvas { max-width: 100%; }
+
+body {
+    margin: 0;
+    padding: 0;
+    background: var(--bg);
+    color: var(--ink);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+                 "Helvetica Neue", Arial, sans-serif;
+    line-height: 1.55;
+    -webkit-font-smoothing: antialiased;
+}
+
+main {
+    max-width: 1180px;
+    margin: 0 auto;
+    padding: 36px 28px 64px;
+}
+
+/* ------------------------------------------------------------------ head */
+.head h1 {
+    margin: 0 0 6px;
+    font-size: clamp(1.45rem, 2.6vw, 2rem);
+    letter-spacing: -0.015em;
+    font-weight: 700;
+}
+
+.sub {
+    margin: 0 0 22px;
+    color: var(--muted);
+    font-size: 1rem;
+}
+
+.sub strong { color: var(--ink); font-weight: 600; }
+
+/* --------------------------------------------------------------- notices */
+.notice {
+    border-radius: var(--radius);
+    padding: 16px 18px;
+    margin: 0 0 22px;
+    font-size: 0.94rem;
+    border: 1px solid var(--line);
+}
+
+.notice.error { background: #fef2f2; border-color: #fecaca; }
+.notice.warn  { background: #fffbeb; border-color: #fde68a; }
+
+.notice strong { display: block; margin-bottom: 4px; }
+.notice p { margin: 0 0 10px; }
+
+.notice pre {
+    margin: 0;
+    padding: 10px 12px;
+    background: rgba(0, 0, 0, 0.05);
+    border-radius: 6px;
+    font-size: 0.85rem;
+    overflow-x: auto;
+}
+
+/* -------------------------------------------------------------- controls */
+.controls {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 18px;
+}
+
+.seg {
+    display: inline-flex;
+    flex-wrap: wrap;
+    padding: 3px;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    background: #fafafa;
+    max-width: 100%;
+}
+
+.seg-btn {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    color: var(--muted);
+    font: inherit;
+    font-size: 0.85rem;
+    font-weight: 600;
+    padding: 7px 14px;
+    border-radius: 999px;
+    cursor: pointer;
+    white-space: nowrap;
+    transition: background 0.12s ease, color 0.12s ease;
+}
+
+.seg-btn:hover { color: var(--ink); }
+
+.seg-btn.is-active {
+    background: var(--ink);
+    color: #fff;
+}
+
+.seg-btn:focus-visible {
+    outline: 2px solid var(--ma);
+    outline-offset: 2px;
+}
+
+.toggle {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.87rem;
+    color: var(--muted);
+    cursor: pointer;
+    user-select: none;
+}
+
+.toggle input { accent-color: var(--ma); width: 16px; height: 16px; }
+
+/* ----------------------------------------------------------------- chart */
+.chart-wrap {
+    position: relative;
+    width: 100%;
+    max-width: 100%;
+    margin: 0 0 8px;
+    height: clamp(340px, 52vh, 520px);
+}
+
+/* Absolute fill inside a sized wrapper: Chart.js otherwise sizes the canvas
+   from its intrinsic content and pushes the page wider than the viewport. */
+.chart-wrap canvas {
+    position: absolute;
+    inset: 0;
+    width: 100% !important;
+    height: 100% !important;
+}
+
+.status {
+    margin: 8px 0 0;
+    color: var(--muted);
+    font-size: 0.86rem;
+    min-height: 1.2em;
+}
+
+.status.error { color: #b91c1c; }
+
+/* ----------------------------------------------------------------- stats */
+.stats {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 12px;
+    margin: 22px 0 30px;
+}
+
+.stat {
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    padding: 14px 16px;
+}
+
+.stat dt {
+    margin: 0 0 3px;
+    font-size: 0.76rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--muted);
+    font-weight: 600;
+}
+
+.stat dd {
+    margin: 0;
+    font-size: 1.32rem;
+    font-weight: 700;
+    letter-spacing: -0.01em;
+    font-variant-numeric: tabular-nums;
+}
+
+.stat dd.ma { color: #b45309; }
+.stat dd small { font-size: 0.72rem; font-weight: 600; color: var(--muted); }
+
+/* ---------------------------------------------------------------- footer */
+.foot {
+    border-top: 1px solid var(--line);
+    padding-top: 16px;
+    color: var(--muted);
+    font-size: 0.83rem;
+}
+
+.foot p { margin: 0 0 6px; max-width: 78ch; }
+.foot .muted { opacity: 0.85; }
+
+@media (max-width: 560px) {
+    main { padding: 24px 16px 48px; }
+    .controls { gap: 10px; }
+    .seg { width: 100%; }
+    .seg-btn { flex: 1 1 auto; padding: 7px 10px; font-size: 0.78rem; }
+    .stats { grid-template-columns: repeat(2, 1fr); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    * { transition: none !important; }
+}
