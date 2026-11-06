@@ -6,6 +6,16 @@ require dirname(__DIR__) . '/src/App.php';
 
 use Btc200Wma\App;
 
+/**
+ * URL path this app is served under, so links work both at a domain root and
+ * in a subdirectory such as /btc-200wma/.
+ */
+$base = rtrim(str_replace('\\', '/', dirname($_SERVER['SCRIPT_NAME'] ?? '/index.php')), '/');
+if ($base === '.') {
+    $base = '';
+}
+$e = static fn (string $v): string => htmlspecialchars($v, ENT_QUOTES, 'UTF-8');
+
 $error = null;
 $weeks = 200;
 $lastImport = null;
@@ -26,7 +36,8 @@ try {
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Bitcoin vs its <?= (int) $weeks ?>-week moving average</title>
-    <link rel="stylesheet" href="/css/style.css">
+    <link rel="stylesheet" href="<?= $e($base) ?>/css/style.css">
+    <script>window.BTC_BASE = <?= json_encode($base) ?>;</script>
 </head>
 <body>
 <main>
@@ -90,6 +101,6 @@ php bin/import.php</pre>
 </main>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-<script src="/js/app.js"></script>
+<script src="<?= $e($base) ?>/js/app.js"></script>
 </body>
 </html>

@@ -7,7 +7,10 @@
 (function () {
     'use strict';
 
-    var API = '/api/series.php';
+    // Resolves against the path the app is served under, so the same file works
+    // at a domain root and in a subdirectory.
+    var BASE = (typeof window.BTC_BASE === 'string') ? window.BTC_BASE : '';
+    var API = BASE + '/api/series.php';
     var ORANGE = '#f7931a';
     var ORANGE_DEEP = '#b45309';
     var PRICE = '#9aa3af';
