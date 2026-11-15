@@ -16,6 +16,18 @@ if ($base === '.') {
 }
 $e = static fn (string $v): string => htmlspecialchars($v, ENT_QUOTES, 'UTF-8');
 
+/**
+ * Asset URL carrying a modification-time stamp.
+ *
+ * Without a version in the URL the browser holds on to a changed app.js and
+ * keeps running the old one — a fix can be deployed and never seen.
+ */
+$asset = static function (string $path) use ($base, $e): string {
+    $mtime = @filemtime(dirname(__DIR__) . '/public' . $path);
+
+    return $e($base) . $path . ($mtime === false ? '' : '?v=' . $mtime);
+};
+
 $error = null;
 $weeks = 200;
 $lastImport = null;
@@ -36,7 +48,7 @@ try {
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Bitcoin vs its <?= (int) $weeks ?>-week moving average</title>
-    <link rel="stylesheet" href="<?= $e($base) ?>/css/style.css">
+    <link rel="stylesheet" href="<?= $asset('/css/style.css') ?>">
     <script>window.BTC_BASE = <?= json_encode($base) ?>;</script>
 </head>
 <body>
@@ -71,6 +83,7 @@ php bin/import.php</pre>
             <button type="button" class="seg-btn" data-range="year">1Y</button>
             <button type="button" class="seg-btn" data-range="month">1M</button>
             <button type="button" class="seg-btn" data-range="week">1W</button>
+            <button type="button" class="seg-btn" data-range="day">1D</button>
             <button type="button" class="seg-btn" data-since="2020">2020+</button>
             <button type="button" class="seg-btn" data-since="2022">2022+</button>
         </div>
@@ -82,12 +95,17 @@ php bin/import.php</pre>
             <input type="checkbox" id="halvings" checked>
             <span>Halvings</span>
         </label>
+        <div class="seg" role="group" aria-label="Zoom">
+            <button type="button" class="seg-btn" id="zoom-out" title="Zoom out (&minus;)" aria-label="Zoom out">&minus;</button>
+            <button type="button" class="seg-btn" id="zoom-in" title="Zoom in (+)" aria-label="Zoom in">+</button>
+            <button type="button" class="seg-btn" id="zoom-reset" title="Reset zoom (0)" disabled>Reset</button>
+        </div>
     </section>
 
     <p class="status" id="status"></p>
 
     <figure class="chart-wrap">
-        <canvas id="chart" aria-label="Bitcoin price against its <?= (int) $weeks ?>-week moving average" role="img"></canvas>
+        <canvas id="chart" tabindex="0" aria-label="Bitcoin price against its <?= (int) $weeks ?>-week moving average. Use the mouse wheel or pinch to zoom, drag to pan, and double-click or press 0 to reset." role="img"></canvas>
     </figure>
 
     <dl class="stats" id="stats"></dl>
@@ -109,6 +127,6 @@ php bin/import.php</pre>
 </main>
 
 <script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.1/dist/chart.umd.min.js"></script>
-<script src="<?= $e($base) ?>/js/app.js"></script>
+<script src="<?= $asset('/js/app.js') ?>"></script>
 </body>
 </html>

@@ -150,7 +150,25 @@ main {
     inset: 0;
     width: 100% !important;
     height: 100% !important;
+    /* The chart owns these gestures: without this, a pinch scrolls the page
+       instead of zooming the data. */
+    touch-action: none;
+    cursor: grab;
+    outline: none;
 }
+
+.chart-wrap canvas:focus-visible {
+    box-shadow: 0 0 0 2px var(--ma);
+}
+
+.chart-wrap canvas.is-dragging { cursor: grabbing; }
+
+.seg-btn:disabled {
+    opacity: 0.45;
+    cursor: default;
+}
+
+.seg-btn:disabled:hover { color: var(--muted); }
 
 .status {
     margin: 0 0 10px;

@@ -26,12 +26,61 @@
         var range = params.get('range');
 
         if (mode === 'daily' || mode === 'weekly') state.mode = mode;
-        if (['week', 'month', 'year', 'all'].indexOf(range) !== -1) state.range = range;
+        if (['day', 'week', 'month', 'year', 'all'].indexOf(range) !== -1) state.range = range;
         if (params.get('halvings') === '0') state.halvings = false;
     })();
+    /**
+     * Value labels for a one-point window.
+     *
+     * A 1D view holds a single observation, so there is no line to read and the
+     * dots alone do not say what they are worth. Label them in place instead.
+     */
+    var pointLabels = {
+        id: 'pointLabels',
+        afterDatasetsDraw: function (c) {
+            if (!c.$singlePoint) return;
+
+            var area = c.chartArea;
+            var ctx = c.ctx;
+
+            c.data.datasets.forEach(function (ds, i) {
+                var meta = c.getDatasetMeta(i);
+                if (!meta || meta.hidden) return;
+
+                var point = meta.data[0];
+                if (!point) return;
+
+                var v = ds.data[0];
+                if (v === null || v === undefined || isNaN(v)) return;
+
+                var text = ds.label + ' ' + money(v);
+                ctx.save();
+                ctx.font = '600 12px -apple-system, Segoe UI, Roboto, sans-serif';
+                ctx.textBaseline = 'middle';
+
+                var w = ctx.measureText(text).width;
+
+                // To the right of the dot, unless that would run off the plot.
+                var left = point.x + 10;
+                if (left + w > area.right - 2) left = point.x - 10 - w;
+
+                ctx.fillStyle = ds.borderColor || INK;
+                ctx.fillText(text, left, point.y);
+                ctx.restore();
+            });
+        }
+    };
+
     var chart = null;
     var requestId = 0;
     var lastData = null;
+    var statusBase = '';
+
+    // The visible slice of the plotted series, as fractional indices. Zooming
+    // moves this window instead of reloading: the chart instance survives, so
+    // dragging costs one redraw and no network request.
+    var view = { active: false, from: 0, to: 0, a: 0, b: 0 };
+    var canvasEl = null;
 
     var statusEl = document.getElementById('status');
     var subEl = document.getElementById('sub');
@@ -259,10 +308,25 @@
         ma = padded.ma;
         var futureDays = padded.added;
 
+        // Keep an existing zoom across a redraw that only changed the y-axis
+        // (log toggle), but reset it when the series itself is different.
+        var keep = (view.active && chart && chart.$labels &&
+                    chart.$labels.length === labels.length)
+            ? { from: view.from, to: view.to }
+            : null;
+
+        view.active = false;
+        view.from = 0;
+        view.to = Math.max(0, labels.length - 1);
+
         // Span decides both the tick format and how much the tooltip repeats.
         var firstDate = new Date(labels[0] + 'T00:00:00Z');
         var lastDate = new Date(labels[labels.length - 1] + 'T00:00:00Z');
         var spanDays = Math.round((lastDate - firstDate) / 86400000) + 1;
+
+        // With one point per day, a 1D window holds a single observation and a
+        // line has nothing to draw. Show the points themselves in that case.
+        var singlePoint = spanDays <= 1;
 
         // On a log axis that spans several decades, only labelling powers of ten
         // keeps it readable. Over a short window the values are all within one
@@ -298,7 +362,8 @@
 
         renderStats(stats, data);
         var plotted = labels.length - futureDays;
-        var statusText = plotted.toLocaleString('en-US') + ' days plotted';
+        var statusText = plotted.toLocaleString('en-US') +
+            (plotted === 1 ? ' day plotted' : ' days plotted');
 
         if (futureDays > 0) {
             statusText += ' · axis extended to the projected next halving';
@@ -306,17 +371,20 @@
             statusText += ' · next halving ' + shortDate(nextHalving.date) + ' is out of range';
         }
 
-        setStatus(statusText);
+        statusBase = statusText;
+        updateStatus();
+
+        var below = belowMask(labels, price, ma);
 
         var cfg = {
             type: 'line',
-            plugins: [halvingLines],
+            plugins: [halvingLines, pointLabels],
             data: {
                 labels: labels,
                 datasets: [
                     {
                         label: 'Price below the average',
-                        data: belowMask(labels, price, ma),
+                        data: below,
                         borderWidth: 0,
                         pointRadius: 0,
                         fill: '+1',              // fill down to the average line
@@ -329,7 +397,10 @@
                         data: ma,
                         borderColor: ORANGE,
                         borderWidth: 2.4,
-                        pointRadius: 0,
+                        pointRadius: singlePoint ? 4 : 0,
+                        pointHoverRadius: singlePoint ? 6 : 0,
+                        pointBackgroundColor: ORANGE,
+                        pointBorderColor: ORANGE,
                         fill: false,
                         spanGaps: false,
                         tension: 0,
@@ -340,7 +411,10 @@
                         data: price,
                         borderColor: PRICE,
                         borderWidth: 1.15,
-                        pointRadius: 0,
+                        pointRadius: singlePoint ? 4 : 0,
+                        pointHoverRadius: singlePoint ? 6 : 0,
+                        pointBackgroundColor: PRICE,
+                        pointBorderColor: PRICE,
                         fill: false,
                         tension: 0,
                         order: 0
@@ -356,6 +430,9 @@
                 scales: {
                     x: {
                         type: 'category',
+                        // One category would otherwise sit hard against the left
+                        // edge; offset gives it the middle of the plot.
+                        offset: singlePoint,
                         grid: { display: false },
                         border: { color: '#e5e7eb' },
                         ticks: {
@@ -364,22 +441,39 @@
                             autoSkip: true,
                             maxTicksLimit: 9,
                             callback: function (value, index) {
-                                var iso = labels[index];
+                                // Read the labels the chart is showing right now:
+                                // when zoomed that is a slice, not the full series.
+                                var current = (this.chart && this.chart.data && this.chart.data.labels) || labels;
+                                var i = (typeof value === 'number' && isFinite(value)) ? value : index;
+                                var iso = current[i];
                                 if (!iso) return '';
 
                                 // Over a wide span, label years. Over a short one
                                 // the year repeats, so label the date instead.
-                                if (spanDays > 400) return iso.slice(0, 4);
+                                // The span is the VISIBLE one, so zooming in swaps
+                                // year labels for day labels without a refetch.
+                                var span = visibleSpanDays();
+                                if (span === null) span = spanDays;
 
                                 var d = new Date(iso + 'T00:00:00Z');
                                 var months = ['Jan','Feb','Mar','Apr','May','Jun',
                                               'Jul','Aug','Sep','Oct','Nov','Dec'];
+
+                                // Three tiers, because each one alone reads badly at
+                                // some zoom level: years repeat over a few thousand
+                                // days, days repeat over a few thousand too.
+                                if (span > 2900) return iso.slice(0, 4);
+                                if (span > 400) return months[d.getUTCMonth()] + ' ' + iso.slice(0, 4);
+
                                 return d.getUTCDate() + ' ' + months[d.getUTCMonth()];
                             }
                         }
                     },
                     y: {
-                        type: state.log ? 'logarithmic' : 'linear',
+                        // A single observation has no decades to compress, and a
+                        // log axis only produces uneven tick spacing over a few
+                        // percent of range, so the one-day view stays linear.
+                        type: (state.log && !singlePoint) ? 'logarithmic' : 'linear',
                         grid: { color: '#eef0f3' },
                         border: { display: false },
                         ticks: {
@@ -389,7 +483,22 @@
                             // count whenever every tick is labelled.
                             maxTicksLimit: labelEveryTick ? 6 : 10,
                             callback: function (value) {
-                                if (labelEveryTick) return money(value);
+                                // Zoomed in, the visible range is narrow enough
+                                // that powers of ten would leave the axis blank.
+                                if (view.active || labelEveryTick) {
+                                    // The padded bounds sit a few pixels from a
+                                    // round tick and their labels collide, so
+                                    // the ends go unlabelled while zoomed.
+                                    if (view.active) {
+                                        var s = this;
+                                        var eps = Math.abs(s.max - s.min) * 1e-9;
+                                        if (Math.abs(value - s.min) <= eps || Math.abs(value - s.max) <= eps) {
+                                            return '';
+                                        }
+                                    }
+
+                                    return money(value);
+                                }
 
                                 // Log axis over many decades: powers of ten only.
                                 var exp = Math.log10(value);
@@ -419,7 +528,9 @@
                     tooltip: {
                         callbacks: {
                             title: function (items) {
-                                return items.length ? shortDate(labels[items[0].dataIndex]) : '';
+                                if (!items.length) return '';
+                                var current = (chart && chart.data && chart.data.labels) || labels;
+                                return shortDate(current[items[0].dataIndex]);
                             },
                             label: function (item) {
                                 return item.dataset.label + ': ' + money(item.parsed.y);
@@ -441,7 +552,24 @@
         var canvas = document.getElementById('chart');
         chart = new Chart(canvas, cfg);
         chart.$halvings = halvings;
+        chart.$singlePoint = singlePoint;
+        chart.$below = below;
+        chart.$price = price;
+        chart.$ma = ma;
+        chart.$labels = labels;
+        chart.$log = state.log && !singlePoint;
+        chart.$labelEveryTick = labelEveryTick;
         chart.update('none');
+
+        if (keep) {
+            view.active = true;
+            view.from = keep.from;
+            view.to = keep.to;
+            applyView();
+        } else {
+            // The new series starts unzoomed; the Reset button has to say so.
+            syncZoomButtons();
+        }
     }
 
     function renderStats(stats, data) {
@@ -461,6 +589,391 @@
     function stat(label, value, cls) {
         return '<div class="stat"><dt>' + label + '</dt>' +
                '<dd' + (cls ? ' class="' + cls + '"' : '') + '>' + value + '</dd></div>';
+    }
+
+    // ------------------------------------------------------------------ zoom
+    //
+    // Zooming moves a window over the already-loaded series rather than asking
+    // the server for a smaller range. The window is expressed in fractional
+    // indices so a pinch is as smooth as a wheel notch, and the y-axis is
+    // rescaled to whatever is visible — otherwise zooming into a quiet month
+    // of a log chart draws two flat lines with empty space above and below.
+
+    var pointers = new Map();
+    var dragState = null;
+    var pinchState = null;
+
+    function visibleSpanDays() {
+        if (!view.active || !chart || !chart.$labels) return null;
+
+        // Use the exact slice boundaries the chart was given, not a rounded
+        // version of them, or the axis and the status line disagree by a day.
+        var a = view.a || 0;
+        var b = view.b || 0;
+        if (b <= a) return 1;
+
+        var d1 = new Date(chart.$labels[a] + 'T00:00:00Z');
+        var d2 = new Date(chart.$labels[b] + 'T00:00:00Z');
+
+        return Math.round((d2 - d1) / 86400000) + 1;
+    }
+
+    /** Lowest and highest price/average inside the window, padded for breathing room. */
+    function visibleValueRange() {
+        if (!chart || !chart.$price) return null;
+
+        var price = chart.$price, ma = chart.$ma;
+        var a = Math.max(0, Math.floor(view.from));
+        var b = Math.min(price.length - 1, Math.ceil(view.to));
+        var lo = Infinity, hi = -Infinity;
+
+        for (var i = a; i <= b; i++) {
+            var p = price[i], m = ma[i];
+            if (p !== null && isFinite(p)) { if (p < lo) lo = p; if (p > hi) hi = p; }
+            if (m !== null && isFinite(m)) { if (m < lo) lo = m; if (m > hi) hi = m; }
+        }
+
+        if (!isFinite(lo) || !isFinite(hi)) return null;
+        if (hi <= lo) { lo *= 0.98; hi *= 1.02; }
+        if (lo <= 0) lo = Math.max(0.0001, hi / 1000);
+
+        if (chart.$log) {
+            // Pad in log space, not by a fixed ratio: a fixed ratio shrinks to
+            // nothing as the window narrows, leaving the line stuck to the edge
+            // of a deeply zoomed chart.
+            var logLo = Math.log(lo);
+            var logHi = Math.log(hi);
+            var padLog = (logHi - logLo) * 0.08;
+
+            return { lo: Math.exp(logLo - padLog), hi: Math.exp(logHi + padLog) };
+        }
+
+        var pad = (hi - lo) * 0.08;
+
+        return { lo: Math.max(0, lo - pad), hi: hi + pad };
+    }
+
+    function applyView() {
+        if (!chart || !chart.options || !chart.$labels) return;
+
+        var y = chart.options.scales.y;
+        var full = chart.$labels;
+
+        if (!view.active) {
+            // Restore the whole series. Copies, not the originals: Chart.js owns
+            // the arrays it is given and the untouched ones stay reusable.
+            chart.data.labels = full.slice();
+            chart.data.datasets[0].data = chart.$below.slice();
+            chart.data.datasets[1].data = chart.$ma.slice();
+            chart.data.datasets[2].data = chart.$price.slice();
+
+            y.min = undefined;
+            y.max = undefined;
+        } else {
+            // Slicing is what makes zoom correct: the category axis numbers its
+            // own labels, so a min/max on it does not mean "data index" and the
+            // ticks end up describing the wrong years. Handing the chart only
+            // the visible slice keeps data, labels, tooltip and halving markers
+            // in agreement.
+            var a = Math.max(0, Math.floor(view.from));
+            var b = Math.min(full.length - 1, Math.ceil(view.to));
+
+            if (b - a < 1) b = Math.min(full.length - 1, a + 1);
+
+            view.a = a;
+            view.b = b;
+
+            var labels = full.slice(a, b + 1);
+            var price = chart.$price.slice(a, b + 1);
+            var ma = chart.$ma.slice(a, b + 1);
+
+            chart.data.labels = labels;
+            chart.data.datasets[1].data = ma;
+            chart.data.datasets[2].data = price;
+            chart.data.datasets[0].data = belowMask(labels, price, ma);
+
+            var range = visibleValueRange();
+
+            // Explicit padded bounds, so the series never touches the frame.
+            y.min = range ? range.lo : undefined;
+            y.max = range ? range.hi : undefined;
+        }
+
+        // A zoomed axis spans too few decades for power-of-ten ticks to say
+        // anything, so the tick count follows the same rule as labelEveryTick.
+        y.ticks.maxTicksLimit = (view.active || chart.$labelEveryTick) ? 6 : 10;
+
+        chart.update('none');
+        updateStatus();
+        syncZoomButtons();
+    }
+
+    function resetZoom() {
+        if (!view.active) return;
+
+        view.active = false;
+        view.from = 0;
+        view.to = chart && chart.$labels ? chart.$labels.length - 1 : 0;
+        applyView();
+    }
+
+    /**
+     * Zoom about an anchor index (the point under the cursor or between the
+     * fingers). factor < 1 tightens, > 1 widens.
+     */
+    function zoomBy(factor, anchor) {
+        if (!chart || !chart.$labels) return;
+
+        var total = chart.$labels.length - 1;
+        if (total < 1) return;
+
+        var from = view.active ? view.from : 0;
+        var to = view.active ? view.to : total;
+        var span = to - from;
+
+        if (span <= 0) return;
+
+        if (anchor === undefined || anchor === null || !isFinite(anchor)) {
+            anchor = (from + to) / 2;
+        }
+        anchor = Math.min(to, Math.max(from, anchor));
+
+        // Two points is the floor: a single point has no line to draw and the
+        // axis math starts dividing by zero.
+        var newSpan = Math.max(2, Math.min(total, span * factor));
+
+        // Hold the anchor at the same fraction of the window, so zooming feels
+        // anchored to what the pointer is actually over.
+        var frac = span > 0 ? (anchor - from) / span : 0.5;
+        frac = Math.min(1, Math.max(0, frac));
+
+        var nFrom = anchor - frac * newSpan;
+        var nTo = nFrom + newSpan;
+
+        if (nFrom < 0) { nFrom = 0; nTo = newSpan; }
+        if (nTo > total) { nTo = total; nFrom = total - newSpan; }
+
+        if (nFrom <= 0 && nTo >= total) {
+            resetZoom();
+            return;
+        }
+
+        view.active = true;
+        view.from = nFrom;
+        view.to = nTo;
+        applyView();
+    }
+
+    function panBy(fraction) {
+        if (!view.active && !fraction) return;
+
+        var total = chart.$labels.length - 1;
+        var from = view.active ? view.from : 0;
+        var to = view.active ? view.to : total;
+        var span = to - from;
+
+        var shift = fraction * span;
+        var nFrom = from + shift;
+        var nTo = to + shift;
+
+        if (nFrom < 0) { nFrom = 0; nTo = span; }
+        if (nTo > total) { nTo = total; nFrom = total - span; }
+
+        view.active = true;
+        view.from = nFrom;
+        view.to = nTo;
+        applyView();
+    }
+
+    /** Fractional index under a client x coordinate, in FULL-series space. */
+    function indexAtClientX(clientX) {
+        if (!chart || !chart.chartArea) return null;
+
+        var rect = chart.canvas.getBoundingClientRect();
+        var px = clientX - rect.left;
+
+        // While zoomed the scale describes the slice, so add the slice offset
+        // back to get an index the view window understands.
+        var base = view.active ? (view.a || 0) : 0;
+        var total = chart.$labels.length - 1;
+
+        var v = chart.scales.x.getValueForPixel(px);
+
+        if (!isFinite(v)) {
+            v = px < chart.chartArea.left ? 0 : (view.active ? (view.to - view.from) : total);
+        }
+
+        return Math.min(total, Math.max(0, base + v));
+    }
+
+    function updateStatus() {
+        if (view.active && chart && chart.$labels) {
+            var a = view.a || 0;
+            var b = view.b || a;
+            var days = visibleSpanDays() || 0;
+
+            setStatus(statusBase +
+                ' \u00b7 zoomed to ' + shortDate(chart.$labels[a]) + ' \u2013 ' + shortDate(chart.$labels[b]) +
+                ' (' + days.toLocaleString('en-US') + (days === 1 ? ' day' : ' days') + ')' +
+                ' \u00b7 double-click the chart to reset');
+        } else {
+            setStatus(statusBase);
+        }
+    }
+
+    function syncZoomButtons() {
+        var reset = document.getElementById('zoom-reset');
+        if (reset) reset.disabled = !view.active;
+    }
+
+    function wireZoom() {
+        canvasEl = document.getElementById('chart');
+        if (!canvasEl) return;
+
+        // Wheel: one notch is a fixed ratio, so zooming feels the same at any
+        // depth. Ctrl/⌘ is left alone in case the user wants browser zoom.
+        canvasEl.addEventListener('wheel', function (e) {
+            if (!chart || !chart.chartArea) return;
+            if (e.ctrlKey || e.metaKey) return;
+
+            e.preventDefault();
+
+            var anchor = indexAtClientX(e.clientX);
+
+            // Scale with the delta so a trackpad's small scrolls are gentle and
+            // a mouse notch is decisive. Fixed factors make one of them wrong.
+            var factor = Math.exp((e.deltaY || 0) * 0.0025);
+            factor = Math.min(2, Math.max(1 / 2, factor));
+
+            zoomBy(factor, anchor);
+        }, { passive: false });
+
+        canvasEl.addEventListener('pointerdown', function (e) {
+            if (!chart || !chart.chartArea) return;
+
+            pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+            try { canvasEl.setPointerCapture(e.pointerId); } catch (err) {}
+
+            if (pointers.size === 1) {
+                var total = chart.$labels.length - 1;
+                dragState = {
+                    x: e.clientX,
+                    from: view.active ? view.from : 0,
+                    to: view.active ? view.to : total
+                };
+                canvasEl.classList.add('is-dragging');
+            } else if (pointers.size === 2) {
+                dragState = null;
+                var pts = Array.from(pointers.values());
+                var midX = (pts[0].x + pts[1].x) / 2;
+
+                pinchState = {
+                    dist: Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y) || 1,
+                    anchor: indexAtClientX(midX),
+                    from: view.active ? view.from : 0,
+                    to: view.active ? view.to : chart.$labels.length - 1
+                };
+            }
+        });
+
+        canvasEl.addEventListener('pointermove', function (e) {
+            if (!pointers.has(e.pointerId)) return;
+
+            pointers.set(e.pointerId, { x: e.clientX, y: e.clientY });
+
+            if (pointers.size === 2 && pinchState) {
+                var pts = Array.from(pointers.values());
+                var dist = Math.hypot(pts[0].x - pts[1].x, pts[0].y - pts[1].y) || 1;
+                var ratio = pinchState.dist / dist;   // spread fingers -> ratio < 1 -> zoom in
+
+                var total = chart.$labels.length - 1;
+                var span = pinchState.to - pinchState.from;
+                var nSpan = Math.max(2, Math.min(total, span * ratio));
+                var anchor = pinchState.anchor === null ? (pinchState.from + pinchState.to) / 2 : pinchState.anchor;
+                var frac = span > 0 ? (anchor - pinchState.from) / span : 0.5;
+
+                frac = Math.min(1, Math.max(0, frac));
+
+                var nFrom = anchor - frac * nSpan;
+                var nTo = nFrom + nSpan;
+
+                if (nFrom < 0) { nFrom = 0; nTo = nSpan; }
+                if (nTo > total) { nTo = total; nFrom = total - nSpan; }
+
+                view.active = !(nFrom <= 0 && nTo >= total);
+                view.from = view.active ? nFrom : 0;
+                view.to = view.active ? nTo : total;
+                applyView();
+                return;
+            }
+
+            if (!dragState) return;
+
+            var area = chart.chartArea;
+            var width = area.right - area.left;
+            if (width <= 0) return;
+
+            // Panning is measured as a fraction of the plot width, so it stays
+            // consistent no matter how deep the zoom already is.
+            var dx = (e.clientX - dragState.x) / width;
+            var span0 = dragState.to - dragState.from;
+            var shift = -dx * span0;
+
+            var total0 = chart.$labels.length - 1;
+            var nFrom = dragState.from + shift;
+            var nTo = dragState.to + shift;
+
+            if (nFrom < 0) { nFrom = 0; nTo = span0; }
+            if (nTo > total0) { nTo = total0; nFrom = total0 - span0; }
+
+            view.active = !(nFrom <= 0 && nTo >= total0);
+            view.from = view.active ? nFrom : 0;
+            view.to = view.active ? nTo : total0;
+            applyView();
+        });
+
+        function endPointer(e) {
+            pointers.delete(e.pointerId);
+
+            if (pointers.size < 2) pinchState = null;
+            if (pointers.size === 0) {
+                dragState = null;
+                canvasEl.classList.remove('is-dragging');
+            }
+        }
+
+        canvasEl.addEventListener('pointerup', endPointer);
+        canvasEl.addEventListener('pointercancel', endPointer);
+
+        canvasEl.addEventListener('dblclick', function () {
+            resetZoom();
+        });
+
+        // Keyboard: the same operations without a pointer.
+        canvasEl.addEventListener('keydown', function (e) {
+            var step = 0.15;
+
+            if (e.key === 'ArrowLeft') { panBy(-step); }
+            else if (e.key === 'ArrowRight') { panBy(step); }
+            else if (e.key === '+' || e.key === '=') { zoomBy(1 / 1.3); }
+            else if (e.key === '-' || e.key === '_') { zoomBy(1.3); }
+            else if (e.key === '0') { resetZoom(); }
+            else { return; }
+
+            e.preventDefault();
+        });
+
+        var zin = document.getElementById('zoom-in');
+        if (zin) zin.addEventListener('click', function () { zoomBy(1 / 1.4); });
+
+        var zout = document.getElementById('zoom-out');
+        if (zout) zout.addEventListener('click', function () { zoomBy(1.4); });
+
+        var zreset = document.getElementById('zoom-reset');
+        if (zreset) zreset.addEventListener('click', function () { resetZoom(); });
+
+        syncZoomButtons();
     }
 
     // ------------------------------------------------------------- controls
@@ -487,7 +1000,7 @@
             });
         });
 
-        // Range buttons: relative windows (1W/1M/1Y), absolute years, and All.
+        // Range buttons: relative windows (1D/1W/1M/1Y), absolute years, and All.
         // All of them are one mutually-exclusive choice, so activating any one
         // clears the others.
         function activateRange(btn) {
@@ -542,5 +1055,6 @@
     }
 
     wire();
+    wireZoom();
     load();
 })();

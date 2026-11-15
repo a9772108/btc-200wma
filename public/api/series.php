@@ -6,6 +6,7 @@ declare(strict_types=1);
  * JSON API: GET /api/series.php
  *
  *   ?since=YYYY    only return days from that year onward
+ *   ?range=day     only the latest stored day (1D view)
  *   ?mode=weekly   default. 200 weekly closes (canonical)
  *   ?mode=daily    straight 1,400-day rolling mean
  *
@@ -32,6 +33,7 @@ try {
     // today: the source can lag, and anchoring to "now" would show a window
     // with a gap at the right-hand edge.
     $rangeDays = match (strtolower((string) ($_GET['range'] ?? ''))) {
+        'day'   => 1,
         'week'  => 7,
         'month' => 30,
         'year'  => 365,

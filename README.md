@@ -15,8 +15,35 @@ no frameworks and no build step.
 - Marks every bitcoin halving with a vertical line, and projects the next one
   from the current chain height
 - Lets you switch between the two common definitions of the average, pick a
-  timeframe (1W / 1M / 1Y / all, or from a given year), and toggle log/linear
+  timeframe (1D / 1W / 1M / 1Y / all, or from a given year), and toggle log/linear
   scaling
+- Zooms and pans: wheel or pinch to zoom, drag to pan, double-click or press
+  `0` to reset (see [Zooming](#zooming))
+
+## Zooming
+
+Wheel, pinch, or the `+` / `−` buttons zoom the x-axis; drag pans; double-click,
+the **Reset** button, or the `0` key returns to the full range. With the canvas
+focused, `+`/`−` zoom and the arrow keys pan.
+
+Zooming moves a window over the data already in the browser. It does not
+refetch, so a wheel gesture costs one canvas redraw and one database query is
+saved. The y-axis rescales to whatever is visible — on a log scale over 13
+years, a three-month window would otherwise be two flat lines in the middle of
+a lot of empty space.
+
+Two details worth knowing:
+
+* **The series is sliced, not masked.** Handing the chart a shorter array keeps
+  its category axis, tooltips and halving markers in agreement. Setting a
+  min/max on a category axis does not mean "data index", and the tick labels
+  quietly describe the wrong years.
+* **The zoom belongs to the loaded range.** Changing mode or timeframe loads a
+  different series and resets to unzoomed; toggling log scale keeps the window,
+  since only the y-axis changes.
+
+A 1D window is a single point and refuses to zoom, rather than collapsing the
+axis to nothing.
 
 ## Requirements
 
@@ -105,6 +132,10 @@ Two details worth knowing:
 [blockchain.info](https://api.blockchain.info/charts/market-price) public chart
 API — no key required. One point per day.
 
+Because the source is daily, the 1D timeframe is a single observation — the
+latest stored day — not an intraday session. There is no finer granularity in
+this dataset.
+
 Two things this imposes on the chart:
 
 * It reports a **daily average price**, not an exchange close. Differences from
@@ -159,7 +190,7 @@ Two consequences worth knowing:
 | Parameter | Values                          | Default  | Meaning                          |
 |-----------|---------------------------------|----------|----------------------------------|
 | `mode`    | `weekly`, `daily`               | `weekly` | average definition               |
-| `range`   | `week`, `month`, `year`         | all      | last 7 / 30 / 365 days           |
+| `range`   | `day`, `week`, `month`, `year`  | all      | last 1 / 7 / 30 / 365 days       |
 | `since`   | year, e.g. `2020`               | all      | trim from that calendar year     |
 
 The `halvings` array in the response is never windowed — the client decides
@@ -201,6 +232,24 @@ refreshes recent values and fills new days. Run it from cron:
 ```
 
 Each run is recorded in `import_runs` with row counts and status.
+
+### Windows: run it daily
+
+`setup_daily_import.ps1` registers a Scheduled Task that runs the import every
+night at 03:15 and catches up on the next boot if the machine was off:
+
+```
+powershell -ExecutionPolicy Bypass -File setup_daily_import.ps1
+```
+
+It runs as `SYSTEM`, so no stored password is needed. Remove it with:
+
+```
+Unregister-ScheduledTask -TaskName 'btc-200wma daily import' -Confirm:$false
+```
+
+The page always states how far the data goes (`Latest stored day: …`) rather
+than implying it is current, so a stale import is visible instead of silent.
 
 ## Tests
 
