@@ -19,6 +19,8 @@ no frameworks and no build step.
   scaling
 - Zooms and pans: wheel or pinch to zoom, drag to pan, double-click or press
   `0` to reset (see [Zooming](#zooming))
+- Overlays the Pi Cycle Top indicator — 111DMA against 2 × 350DMA — with the
+  historical crossings marked (see [Pi Cycle Top](#pi-cycle-top))
 
 ## Zooming
 
@@ -99,6 +101,7 @@ src/PriceRepository.php     queries and upserts
 src/MovingAverage.php       the average itself
 src/Importer.php            download, normalise, store
 tests/MovingAverageTest.php plain-PHP tests for the average
+tests/PiCycleTest.php       plain-PHP tests for the Pi Cycle indicator
 ```
 
 ## The 200-week average: which definition?
@@ -150,6 +153,38 @@ window counts days rather than observations.
 
 The source can lag spot by a day or two. The page shows the latest stored day
 so this is visible rather than assumed.
+
+## Pi Cycle Top
+
+A second overlay, toggled by **Pi Cycle** (on by default). Two lines:
+
+* **111-day simple moving average**, and
+* **2 × the 350-day simple moving average**.
+
+When the 111DMA rises through 2 × the 350DMA, that crossing has historically
+coincided with a cycle high. The name comes from 350 / 111 = 3.153, the closest
+you can get to pi by dividing 350 by a whole number.
+
+Two things are easy to get wrong, and both are pinned by
+`tests/PiCycleTest.php`:
+
+* **The multiple is of the price, not the days.** 2 × 350DMA means twice the
+  average *price*; it is not a 700-day average.
+* **The signal is a crossing, not a level.** Sitting above is the after-effect;
+  the event is the day it moved from at-or-below to above. Touching and then
+  rising counts.
+
+On the stored history this yields four crossings — 2013-04-07, 2013-12-07,
+2017-12-17 and 2021-04-13 — each within three days of a local price peak, which
+is what the indicator claims for itself. They are drawn as dashed vertical
+markers, offset to a second line at the top so they cannot collide with the
+halving labels.
+
+Definition taken from the indicator's published description
+(<https://www.lookintobitcoin.com/charts/pi-cycle-top-indicator/>, retrieved
+2026-11-16). The Pi Cycle *Bottom* variant is deliberately absent: its periods
+could not be confirmed from a primary source, and guessing them would produce a
+plausible-looking chart that is simply wrong.
 
 ## Halvings
 
@@ -222,6 +257,12 @@ expected to break the line there rather than plot a zero.
 `stats` always describes the whole series, not the zoomed window, so the
 headline number does not change when you zoom.
 
+The `pi` object carries the Pi Cycle overlay: `fast` and `slow` arrays aligned
+with `labels` (null until enough history exists), `crosses` as a list of ISO
+dates for every historical 111DMA-over-2×350DMA crossing, plus `fast_now`,
+`slow_now` and `gap_pct` for the latest day. Like `halvings`, `crosses` is not
+windowed — the client decides which markers fall inside the visible range.
+
 ## Refreshing the data
 
 `bin/import.php` is idempotent — rows are upserted by date, so re-running only
@@ -256,11 +297,12 @@ than implying it is current, so a stale import is visible instead of silent.
 ```bash
 php tests/MovingAverageTest.php
 php tests/HalvingsTest.php
+php tests/PiCycleTest.php
 ```
 
 17 assertions on week alignment, exclusion of the partial trailing week, and
-both averaging modes; 20 on the halving schedule and projection. No
-dependencies.
+both averaging modes; 20 on the halving schedule and projection; 14 on the Pi
+Cycle windows, the price multiple and crossing detection. No dependencies.
 
 ## Limitations
 

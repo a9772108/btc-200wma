@@ -16,7 +16,7 @@
     var PRICE = '#9aa3af';
     var INK = '#111318';
 
-    var state = { mode: 'weekly', range: 'all', since: 0, log: true, halvings: true };
+    var state = { mode: 'weekly', range: 'all', since: 0, log: true, halvings: true, pi: true };
 
     // The initial view can come from the query string, so a specific window is
     // linkable: ?range=year or ?mode=daily.
@@ -28,6 +28,7 @@
         if (mode === 'daily' || mode === 'weekly') state.mode = mode;
         if (['day', 'week', 'month', 'year', 'all'].indexOf(range) !== -1) state.range = range;
         if (params.get('halvings') === '0') state.halvings = false;
+        if (params.get('pi') === '0') state.pi = false;
     })();
     /**
      * Value labels for a one-point window.
@@ -88,6 +89,63 @@
     var freshEl = document.getElementById('freshness');
 
     var HALVING = '#6d5f9e';        // muted violet: clearly not price data
+    var PI = '#c2405a';             // crimson: likewise, and distinct from violet
+
+    /**
+     * Vertical markers for Pi Cycle Top crossings.
+     *
+     * Same shape as the halving markers, offset to a second line at the top so
+     * the two sets of year labels cannot land on top of each other (a Pi
+     * crossing in 2013 sits close to the 2012 halving on a wide axis).
+     */
+    var piLines = {
+        id: 'piLines',
+        afterDatasetsDraw: function (c) {
+            var dates = c.$piCrosses;
+            if (!dates || !dates.length) return;
+
+            var x = c.scales.x;
+            var area = c.chartArea;
+            var labels = c.data.labels;
+            var ctx = c.ctx;
+            var lastLabelRight = -Infinity;
+
+            dates.forEach(function (date) {
+                var idx = indexForDate(labels, date);
+                if (idx === null) return;
+
+                var px = x.getPixelForValue(idx);
+                if (px < area.left || px > area.right) return;
+
+                ctx.save();
+                ctx.beginPath();
+                ctx.setLineDash([4, 3]);
+                ctx.strokeStyle = PI;
+                ctx.globalAlpha = 0.75;
+                ctx.lineWidth = 1.2;
+                ctx.moveTo(px, area.top);
+                ctx.lineTo(px, area.bottom);
+                ctx.stroke();
+                ctx.restore();
+
+                var text = date.slice(0, 4);
+
+                ctx.save();
+                ctx.font = '600 10px -apple-system, Segoe UI, Roboto, sans-serif';
+                var w = ctx.measureText(text).width;
+                var fitsRight = px + 4 + w <= area.right - 2;
+                var labelX = fitsRight ? px + 4 : px - 4 - w;
+
+                if (labelX > lastLabelRight + 8) {
+                    ctx.fillStyle = PI;
+                    ctx.textBaseline = 'top';
+                    ctx.fillText(text, labelX, area.top + 15);
+                    lastLabelRight = labelX + w;
+                }
+                ctx.restore();
+            });
+        }
+    };
 
     /**
      * Vertical markers for the halvings.
@@ -375,51 +433,107 @@
         updateStatus();
 
         var below = belowMask(labels, price, ma);
+        var piData = data.pi || null;
+        var showPi = state.pi && piData && piData.fast && piData.fast.length;
+
+        // The Pi arrays arrive for real days only, while labels carry the padded
+        // future. Pad them with nulls so every dataset is the same length: the
+        // zoom slices all of them by the same indices, and a shorter array would
+        // shift its line left against the price as soon as the window reached
+        // the projection.
+        if (showPi && futureDays > 0) {
+            piData = {
+                fast_days: piData.fast_days,
+                slow_days: piData.slow_days,
+                multiple: piData.multiple,
+                crosses: piData.crosses,
+                fast_now: piData.fast_now,
+                slow_now: piData.slow_now,
+                gap_pct: piData.gap_pct,
+                fast: piData.fast.concat(Array(futureDays).fill(null)),
+                slow: piData.slow.concat(Array(futureDays).fill(null))
+            };
+        }
+
+        // Built as data, not as five literals, because the Pi Cycle pair is
+        // optional and everything downstream refers to datasets by index.
+        var datasets = [
+            {
+                label: 'Price below the average',
+                data: below,
+                borderWidth: 0,
+                pointRadius: 0,
+                fill: '+1',              // fill down to the average line
+                backgroundColor: 'rgba(247,147,26,0.38)',
+                spanGaps: false,
+                order: 3                 // drawn behind the strokes
+            },
+            {
+                label: '200-week average',
+                data: ma,
+                borderColor: ORANGE,
+                borderWidth: 2.4,
+                pointRadius: singlePoint ? 4 : 0,
+                pointHoverRadius: singlePoint ? 6 : 0,
+                pointBackgroundColor: ORANGE,
+                pointBorderColor: ORANGE,
+                fill: false,
+                spanGaps: false,
+                tension: 0,
+                order: 1
+            },
+            {
+                label: 'BTC price',
+                data: price,
+                borderColor: PRICE,
+                borderWidth: 1.15,
+                pointRadius: singlePoint ? 4 : 0,
+                pointHoverRadius: singlePoint ? 6 : 0,
+                pointBackgroundColor: PRICE,
+                pointBorderColor: PRICE,
+                fill: false,
+                tension: 0,
+                order: 0
+            }
+        ];
+
+        var belowIndex = 0;
+        var maIndex = 1;
+        var priceIndex = 2;
+
+        if (showPi) {
+            datasets.push({
+                label: 'Pi Cycle ' + piData.fast_days + 'DMA',
+                data: piData.fast,
+                borderColor: PI,
+                borderWidth: 1.6,
+                pointRadius: 0,
+                fill: false,
+                spanGaps: false,
+                tension: 0,
+                order: 2
+            });
+
+            datasets.push({
+                label: '2 \u00d7 ' + piData.slow_days + 'DMA',
+                data: piData.slow,
+                borderColor: PI,
+                borderWidth: 1.4,
+                borderDash: [6, 4],
+                pointRadius: 0,
+                fill: false,
+                spanGaps: false,
+                tension: 0,
+                order: 2
+            });
+        }
 
         var cfg = {
             type: 'line',
-            plugins: [halvingLines, pointLabels],
+            plugins: [halvingLines, piLines, pointLabels],
             data: {
                 labels: labels,
-                datasets: [
-                    {
-                        label: 'Price below the average',
-                        data: below,
-                        borderWidth: 0,
-                        pointRadius: 0,
-                        fill: '+1',              // fill down to the average line
-                        backgroundColor: 'rgba(247,147,26,0.38)',
-                        spanGaps: false,
-                        order: 3                 // drawn behind the strokes
-                    },
-                    {
-                        label: '200-week average',
-                        data: ma,
-                        borderColor: ORANGE,
-                        borderWidth: 2.4,
-                        pointRadius: singlePoint ? 4 : 0,
-                        pointHoverRadius: singlePoint ? 6 : 0,
-                        pointBackgroundColor: ORANGE,
-                        pointBorderColor: ORANGE,
-                        fill: false,
-                        spanGaps: false,
-                        tension: 0,
-                        order: 1
-                    },
-                    {
-                        label: 'BTC price',
-                        data: price,
-                        borderColor: PRICE,
-                        borderWidth: 1.15,
-                        pointRadius: singlePoint ? 4 : 0,
-                        pointHoverRadius: singlePoint ? 6 : 0,
-                        pointBackgroundColor: PRICE,
-                        pointBorderColor: PRICE,
-                        fill: false,
-                        tension: 0,
-                        order: 0
-                    }
-                ]
+                datasets: datasets
             },
             options: {
                 responsive: true,
@@ -559,6 +673,15 @@
         chart.$labels = labels;
         chart.$log = state.log && !singlePoint;
         chart.$labelEveryTick = labelEveryTick;
+
+        // Everything the zoom needs to re-slice, in dataset order. The Pi Cycle
+        // pair is optional, so indices are recorded rather than assumed.
+        chart.$series = datasets.map(function (d) { return d.data; });
+        chart.$belowIndex = belowIndex;
+        chart.$maIndex = maIndex;
+        chart.$priceIndex = priceIndex;
+        chart.$piCrosses = showPi ? (piData.crosses || []) : [];
+
         chart.update('none');
 
         if (keep) {
@@ -581,9 +704,31 @@
             stat('BTC price', money(stats.price)) +
             stat('200-week average', money(stats.ma), 'ma') +
             stat('Price vs average', sign + premium.toFixed(1) + '%') +
-            stat('Days below average', (stats.below_pct || 0).toFixed(1) + '%');
+            stat('Days below average', (stats.below_pct || 0).toFixed(1) + '%') +
+            piStat(data);
 
         freshEl.textContent = 'Latest stored day: ' + shortDate(data.to) + '.';
+    }
+
+    /**
+     * How far the Pi Cycle pair is from a top signal.
+     *
+     * A crossing is rare — four in this whole history — so the useful number is
+     * the distance still to cover, not a red/green flag on a 13-year chart.
+     */
+    function piStat(data) {
+        if (!state.pi || !data.pi || data.pi.fast_now === null || !data.pi.slow_now) {
+            return '';
+        }
+
+        var pi = data.pi;
+        var gap = pi.gap_pct;
+        var label = 'Pi Cycle (' + pi.fast_days + ' vs 2\u00d7' + pi.slow_days + ')';
+
+        return '<div class="stat"><dt>' + label + '</dt>' +
+               '<dd class="pi">' + (gap === null ? '\u2014' : (gap >= 0 ? '+' : '') + gap.toFixed(1) + '%') +
+               '<small> ' + (gap !== null && gap >= 0 ? 'crossed above' : 'below signal') + '</small>' +
+               '</dd></div>';
     }
 
     function stat(label, value, cls) {
@@ -618,20 +763,28 @@
         return Math.round((d2 - d1) / 86400000) + 1;
     }
 
-    /** Lowest and highest price/average inside the window, padded for breathing room. */
+    /** Lowest and highest plotted value inside the window, padded for breathing room. */
     function visibleValueRange() {
-        if (!chart || !chart.$price) return null;
+        if (!chart || !chart.$series) return null;
 
-        var price = chart.$price, ma = chart.$ma;
         var a = Math.max(0, Math.floor(view.from));
-        var b = Math.min(price.length - 1, Math.ceil(view.to));
+        var b = Math.min(chart.$labels.length - 1, Math.ceil(view.to));
         var lo = Infinity, hi = -Infinity;
 
-        for (var i = a; i <= b; i++) {
-            var p = price[i], m = ma[i];
-            if (p !== null && isFinite(p)) { if (p < lo) lo = p; if (p > hi) hi = p; }
-            if (m !== null && isFinite(m)) { if (m < lo) lo = m; if (m > hi) hi = m; }
-        }
+        // Every visible dataset counts, not just price and average: the Pi Cycle
+        // slow line sits well above price near a signal, and ignoring it would
+        // clip the very line the indicator exists to show.
+        chart.$series.forEach(function (series, i) {
+            if (i === chart.$belowIndex) return;   // derived fill, not a value
+
+            for (var k = a; k <= b; k++) {
+                var v = series[k];
+                if (v !== null && v !== undefined && isFinite(v)) {
+                    if (v < lo) lo = v;
+                    if (v > hi) hi = v;
+                }
+            }
+        });
 
         if (!isFinite(lo) || !isFinite(hi)) return null;
         if (hi <= lo) { lo *= 0.98; hi *= 1.02; }
@@ -663,9 +816,10 @@
             // Restore the whole series. Copies, not the originals: Chart.js owns
             // the arrays it is given and the untouched ones stay reusable.
             chart.data.labels = full.slice();
-            chart.data.datasets[0].data = chart.$below.slice();
-            chart.data.datasets[1].data = chart.$ma.slice();
-            chart.data.datasets[2].data = chart.$price.slice();
+
+            for (var d = 0; d < chart.data.datasets.length; d++) {
+                chart.data.datasets[d].data = chart.$series[d].slice();
+            }
 
             y.min = undefined;
             y.max = undefined;
@@ -684,13 +838,23 @@
             view.b = b;
 
             var labels = full.slice(a, b + 1);
-            var price = chart.$price.slice(a, b + 1);
-            var ma = chart.$ma.slice(a, b + 1);
 
             chart.data.labels = labels;
-            chart.data.datasets[1].data = ma;
-            chart.data.datasets[2].data = price;
-            chart.data.datasets[0].data = belowMask(labels, price, ma);
+
+            // Slice every dataset by the same window, whatever the count. The
+            // Pi Cycle pair is optional, so index arithmetic would break the
+            // moment it is toggled.
+            for (var k = 0; k < chart.data.datasets.length; k++) {
+                chart.data.datasets[k].data = chart.$series[k].slice(a, b + 1);
+            }
+
+            // The below-average fill is derived, not stored, so it is rebuilt
+            // from the sliced price and average rather than sliced itself.
+            chart.data.datasets[chart.$belowIndex].data = belowMask(
+                labels,
+                chart.data.datasets[chart.$priceIndex].data,
+                chart.data.datasets[chart.$maIndex].data
+            );
 
             var range = visibleValueRange();
 
@@ -990,6 +1154,9 @@
         var halvingBox = document.getElementById('halvings');
         if (halvingBox) halvingBox.checked = state.halvings;
 
+        var piBox = document.getElementById('pi');
+        if (piBox) piBox.checked = state.pi;
+
         document.querySelectorAll('[data-mode]').forEach(function (btn) {
             btn.addEventListener('click', function () {
                 document.querySelectorAll('[data-mode]').forEach(function (b) {
@@ -1027,6 +1194,19 @@
             });
         });
 
+        var piToggle = document.getElementById('pi');
+        if (piToggle) {
+            piToggle.addEventListener('change', function () {
+                state.pi = piToggle.checked;
+                // The dataset set changes, so rebuild rather than toggle a scale.
+                if (lastData) {
+                    draw(lastData);
+                } else {
+                    load();
+                }
+            });
+        }
+
         var logToggle = document.getElementById('log');
         if (logToggle) {
             logToggle.addEventListener('change', function () {
@@ -1042,8 +1222,7 @@
         }
 
         var halvingToggle = document.getElementById('halvings');
-        if (halvingToggle) {
-            halvingToggle.addEventListener('change', function () {
+        if (halvingToggle) {            halvingToggle.addEventListener('change', function () {
                 state.halvings = halvingToggle.checked;
                 if (lastData) {
                     draw(lastData);

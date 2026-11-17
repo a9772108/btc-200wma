@@ -95,6 +95,10 @@ php bin/import.php</pre>
             <input type="checkbox" id="halvings" checked>
             <span>Halvings</span>
         </label>
+        <label class="toggle">
+            <input type="checkbox" id="pi" checked>
+            <span>Pi Cycle</span>
+        </label>
         <div class="seg" role="group" aria-label="Zoom">
             <button type="button" class="seg-btn" id="zoom-out" title="Zoom out (&minus;)" aria-label="Zoom out">&minus;</button>
             <button type="button" class="seg-btn" id="zoom-in" title="Zoom in (+)" aria-label="Zoom in">+</button>

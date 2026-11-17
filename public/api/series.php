@@ -20,6 +20,7 @@ require dirname(__DIR__, 2) . '/src/App.php';
 use Btc200Wma\App;
 use Btc200Wma\Halvings;
 use Btc200Wma\MovingAverage;
+use Btc200Wma\PiCycle;
 
 header('Content-Type: application/json; charset=utf-8');
 header('Cache-Control: no-store');
@@ -94,6 +95,32 @@ try {
     $meta = App::meta();
     $halvings = Halvings::all($meta->chainHeight(), $meta->chainHeightAt());
 
+    // Pi Cycle is computed from the FULL series and then windowed like the
+    // price, so a 1Y view shows the same averages it would in the full view.
+    $piCycle  = new PiCycle();
+    $piSeries = $piCycle->apply($daily);
+    $piCrosses = $piCycle->topCrosses($piSeries);
+
+    if ($rangeDays > 0 || $since > 0) {
+        $piByDate = [];
+        foreach ($piSeries as $row) {
+            $piByDate[$row['date']] = $row;
+        }
+
+        $piSeries = [];
+        foreach ($series as $row) {
+            $piSeries[] = $piByDate[$row['date']] ?? ['date' => $row['date'], 'fast' => null, 'slow' => null];
+        }
+    }
+
+    $piLast = null;
+    for ($i = count($piSeries) - 1; $i >= 0; $i--) {
+        if ($piSeries[$i]['fast'] !== null && $piSeries[$i]['slow'] !== null) {
+            $piLast = $piSeries[$i];
+            break;
+        }
+    }
+
     echo json_encode([
         'mode'       => $mode,
         'weeks'      => $weeks,
@@ -107,6 +134,27 @@ try {
             static fn ($r) => $r['ma'] === null ? null : $fmt($r['ma']),
             $series
         ),
+        'pi'         => [
+            'fast_days' => PiCycle::FAST_DAYS,
+            'slow_days' => PiCycle::SLOW_DAYS,
+            'multiple'  => PiCycle::MULTIPLE,
+            'fast'      => array_map(
+                static fn ($r) => $r['fast'] === null ? null : $fmt($r['fast']),
+                $piSeries
+            ),
+            'slow'      => array_map(
+                static fn ($r) => $r['slow'] === null ? null : $fmt($r['slow']),
+                $piSeries
+            ),
+            // Crossings are not windowed: the client decides which fall inside
+            // the visible range, the same way it handles halvings.
+            'crosses'   => $piCrosses,
+            'fast_now'  => $piLast === null ? null : $fmt($piLast['fast']),
+            'slow_now'  => $piLast === null ? null : $fmt($piLast['slow']),
+            'gap_pct'   => ($piLast === null || $piLast['slow'] == 0.0)
+                ? null
+                : round(($piLast['fast'] / $piLast['slow'] - 1) * 100, 2),
+        ],
         'stats'      => [
             'price'       => $fmt($last['usd']),
             'ma'          => $fmt($last['ma']),

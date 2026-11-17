@@ -211,6 +211,7 @@ main {
 }
 
 .stat dd.ma { color: #b45309; }
+.stat dd.pi { color: #c2405a; }
 .stat dd small { font-size: 0.72rem; font-weight: 600; color: var(--muted); }
 
 /* ---------------------------------------------------------------- footer */
