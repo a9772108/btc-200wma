@@ -87,22 +87,36 @@ php bin/import.php</pre>
             <button type="button" class="seg-btn" data-since="2020">2020+</button>
             <button type="button" class="seg-btn" data-since="2022">2022+</button>
         </div>
-        <label class="toggle">
-            <input type="checkbox" id="log" checked>
-            <span>Log scale</span>
-        </label>
-        <label class="toggle">
-            <input type="checkbox" id="halvings" checked>
-            <span>Halvings</span>
-        </label>
-        <label class="toggle">
-            <input type="checkbox" id="pi" checked>
-            <span>Pi Cycle</span>
-        </label>
         <div class="seg" role="group" aria-label="Zoom">
             <button type="button" class="seg-btn" id="zoom-out" title="Zoom out (&minus;)" aria-label="Zoom out">&minus;</button>
             <button type="button" class="seg-btn" id="zoom-in" title="Zoom in (+)" aria-label="Zoom in">+</button>
             <button type="button" class="seg-btn" id="zoom-reset" title="Reset zoom (0)" disabled>Reset</button>
+        </div>
+        <div class="toggles">
+            <label class="toggle">
+                <input type="checkbox" id="log" checked>
+                <span>Log scale</span>
+            </label>
+            <label class="toggle">
+                <input type="checkbox" id="halvings" checked>
+                <span>Halvings</span>
+            </label>
+            <label class="toggle">
+                <input type="checkbox" id="projection" checked>
+                <span>1× projection</span>
+            </label>
+            <label class="toggle">
+                <input type="checkbox" id="peaks" checked>
+                <span>Cycle tops</span>
+            </label>
+            <label class="toggle">
+                <input type="checkbox" id="dma" checked>
+                <span>50/200 DMA</span>
+            </label>
+            <label class="toggle">
+                <input type="checkbox" id="pi" checked>
+                <span>Pi Cycle</span>
+            </label>
         </div>
     </section>
 
@@ -113,6 +127,49 @@ php bin/import.php</pre>
     </figure>
 
     <dl class="stats" id="stats"></dl>
+
+    <section class="peak-section" id="peak-section" hidden>
+        <h2>Cycle tops vs the 200-week average</h2>
+        <div class="table-wrap">
+            <table class="peak-table" id="peak-table">
+                <thead>
+                    <tr>
+                        <th scope="col">Peak</th>
+                        <th scope="col" class="num">Price</th>
+                        <th scope="col" class="num">200-week avg</th>
+                        <th scope="col" class="num">&times; average</th>
+                        <th scope="col" class="num">Days above</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+        <p class="peak-note" id="peak-note"></p>
+    </section>
+
+    <section class="peak-section" id="projection-section" hidden>
+        <h2>1&times; the 200-week average</h2>
+        <p class="projection-assumption" id="projection-assumption"></p>
+        <div class="table-wrap">
+            <table class="peak-table" id="projection-table">
+                <thead>
+                    <tr>
+                        <th scope="col">When</th>
+                        <th scope="col" class="num">1&times; level</th>
+                        <th scope="col" class="num">Price would need</th>
+                    </tr>
+                </thead>
+                <tbody></tbody>
+            </table>
+        </div>
+        <p class="peak-note">
+            This is arithmetic, not a forecast. The average is a lagged mean, so it
+            keeps moving even if price stands still &mdash; and it moves in the
+            direction of the prices leaving the window. When cheap history is
+            leaving, a flat price falls further behind the average rather than
+            catching up.
+        </p>
+    </section>
 
     <footer class="foot">
         <p>

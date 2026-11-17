@@ -134,6 +134,17 @@ main {
 
 .toggle input { accent-color: var(--ma); width: 16px; height: 16px; }
 
+/* The overlay switches wrap as one group on their own row. Left to wrap
+   individually they split mid-group at some widths, leaving an orphaned
+   checkbox on a line by itself, which reads as a layout bug. */
+.toggles {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 14px;
+    flex: 1 0 100%;
+}
+
 /* ----------------------------------------------------------------- chart */
 .chart-wrap {
     position: relative;
@@ -212,10 +223,128 @@ main {
 
 .stat dd.ma { color: #b45309; }
 .stat dd.pi { color: #c2405a; }
+.stat dd.dma { color: #1e4f66; }
 .stat dd small { font-size: 0.72rem; font-weight: 600; color: var(--muted); }
 
-/* ---------------------------------------------------------------- footer */
-.foot {
+/* -------------------------------------------------------- peak table */
+.peak-section {
+    margin: 0 0 30px;
+}
+
+.peak-section h2 {
+    margin: 0 0 10px;
+    font-size: 0.95rem;
+    font-weight: 700;
+    letter-spacing: -0.005em;
+}
+
+.table-wrap {
+    overflow-x: auto;
+    -webkit-overflow-scrolling: touch;
+}
+
+.peak-table {
+    width: 100%;
+    max-width: 640px;
+    border-collapse: collapse;
+    font-size: 0.9rem;
+    font-variant-numeric: tabular-nums;
+}
+
+.peak-table th,
+.peak-table td {
+    padding: 8px 12px;
+    text-align: left;
+    border-bottom: 1px solid var(--line);
+    white-space: nowrap;
+}
+
+.peak-table th {
+    font-size: 0.72rem;
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+    color: var(--muted);
+    font-weight: 600;
+}
+
+.peak-table .num { text-align: right; }
+
+.peak-table tbody tr:last-child td { border-bottom: 0; }
+
+.peak-table td.peak-mult {
+    font-weight: 700;
+    color: #a16207;
+}
+
+/* An unavailable figure is shown as a dash, not left blank, so it reads as
+   "not applicable" rather than "none". */
+.peak-table td.na { color: var(--muted); }
+
+.peak-note {
+    margin: 8px 0 0;
+    max-width: 78ch;
+    font-size: 0.8rem;
+    color: var(--muted);
+}
+
+.projection-assumption {
+    margin: 0 0 10px;
+    max-width: 78ch;
+    font-size: 0.84rem;
+    color: var(--ink);
+}
+
+/* Narrow screens: five columns do not fit, and a horizontally scrolling table
+   hides the numbers people came for behind an invisible edge. Each row becomes
+   a small block instead, with its own labels. */
+@media (max-width: 560px) {
+    .peak-table,
+    .peak-table thead,
+    .peak-table tbody,
+    .peak-table tr,
+    .peak-table td {
+        display: block;
+        width: auto;
+        max-width: 100%;
+    }
+
+    .peak-table thead { display: none; }
+
+    .peak-table tr {
+        padding: 10px 0;
+        border-bottom: 1px solid var(--line);
+    }
+
+    .peak-table tbody tr:last-child { border-bottom: 0; }
+
+    .peak-table td {
+        display: flex;
+        justify-content: space-between;
+        gap: 12px;
+        padding: 3px 2px;
+        border-bottom: 0;
+        text-align: left;
+    }
+
+    .peak-table td::before {
+        content: attr(data-label);
+        color: var(--muted);
+        font-size: 0.78rem;
+        font-weight: 600;
+    }
+
+    /* The date is the row's identity, not a field: no label, bigger type. */
+    .peak-table td:first-child {
+        font-weight: 700;
+        padding-bottom: 6px;
+    }
+
+    .peak-table td:first-child::before { content: none; }
+
+    .peak-table td.num { text-align: right; }
+}
+
+/* ---------------------------------------------------------------- footer */.foot {
     border-top: 1px solid var(--line);
     padding-top: 16px;
     color: var(--muted);

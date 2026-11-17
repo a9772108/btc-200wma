@@ -16,7 +16,7 @@
     var PRICE = '#9aa3af';
     var INK = '#111318';
 
-    var state = { mode: 'weekly', range: 'all', since: 0, log: true, halvings: true, pi: true };
+    var state = { mode: 'weekly', range: 'all', since: 0, log: true, halvings: true, pi: true, dma: true, peaks: true, projection: true };
 
     // The initial view can come from the query string, so a specific window is
     // linkable: ?range=year or ?mode=daily.
@@ -29,6 +29,9 @@
         if (['day', 'week', 'month', 'year', 'all'].indexOf(range) !== -1) state.range = range;
         if (params.get('halvings') === '0') state.halvings = false;
         if (params.get('pi') === '0') state.pi = false;
+        if (params.get('dma') === '0') state.dma = false;
+        if (params.get('peaks') === '0') state.peaks = false;
+        if (params.get('projection') === '0') state.projection = false;
     })();
     /**
      * Value labels for a one-point window.
@@ -87,9 +90,144 @@
     var subEl = document.getElementById('sub');
     var statsEl = document.getElementById('stats');
     var freshEl = document.getElementById('freshness');
+    var peakSectionEl = document.getElementById('peak-section');
+    var peakTableBodyEl = document.querySelector('#peak-table tbody');
+    var peakNoteEl = document.getElementById('peak-note');
+    var projSectionEl = document.getElementById('projection-section');
+    var projTableBodyEl = document.querySelector('#projection-table tbody');
+    var projAssumptionEl = document.getElementById('projection-assumption');
 
     var HALVING = '#6d5f9e';        // muted violet: clearly not price data
     var PI = '#c2405a';             // crimson: likewise, and distinct from violet
+    var DMA_FAST = '#3f7f9e';       // steel blue, 50-day
+    var DMA_SLOW = '#1e4f66';       // darker steel, 200-day
+    var CROSS_DEATH = '#b91c1c';
+    var CROSS_GOLDEN = '#15803d';
+    var PEAK = '#a16207';           // amber: 'top of cycle', reads as a badge
+
+    /**
+     * Cycle-top markers.
+     *
+     * A filled dot on the peak with its price beneath. The label goes BELOW the
+     * point on purpose: a cycle top is by definition the highest thing on the
+     * chart, so a label above it would sit outside the plot area and be clipped.
+     */
+    var peakMarkers = {
+        id: 'peakMarkers',
+        afterDatasetsDraw: function (c) {
+            var peaks = c.$peaks;
+            if (!peaks || !peaks.length) return;
+
+            var labels = c.data.labels;
+            var ctx = c.ctx;
+            var area = c.chartArea;
+            var lastLabelRight = -Infinity;
+
+            peaks.forEach(function (peak) {
+                var i = labels.indexOf(peak.date);
+                if (i < 0) return;
+
+                var px = c.scales.x.getPixelForValue(i);
+                var py = c.scales.y.getPixelForValue(peak.usd);
+
+                if (px < area.left || px > area.right) return;
+                if (py < area.top - 2 || py > area.bottom) return;
+
+                var r = peak.confirmed ? 4.5 : 3.5;
+
+                ctx.save();
+                ctx.beginPath();
+                ctx.arc(px, py, r, 0, Math.PI * 2);
+                ctx.fillStyle = PEAK;
+                ctx.globalAlpha = peak.confirmed ? 0.95 : 0.55;
+                ctx.fill();
+                ctx.lineWidth = 1.2;
+                ctx.strokeStyle = '#ffffff';
+                ctx.globalAlpha = 0.8;
+                ctx.stroke();
+                ctx.restore();
+
+                var text = money(peak.usd) + (peak.confirmed ? '' : ' ?');
+
+                ctx.save();
+                ctx.font = '700 10px -apple-system, Segoe UI, Roboto, sans-serif';
+                var w = ctx.measureText(text).width;
+                var labelX = px - w / 2;
+
+                // Keep the text inside the plot horizontally.
+                labelX = Math.min(area.right - w - 2, Math.max(area.left + 2, labelX));
+
+                // Skip rather than overlap: two peaks close together would
+                // otherwise print on top of each other.
+                if (labelX > lastLabelRight + 6) {
+                    ctx.textBaseline = 'top';
+                    // Halo first: the label sits on top of the price line and
+                    // the other averages, so plain text is hard to read there.
+                    ctx.lineWidth = 3;
+                    ctx.strokeStyle = 'rgba(255,255,255,0.92)';
+                    ctx.lineJoin = 'round';
+                    ctx.strokeText(text, labelX, py + r + 3);
+
+                    ctx.fillStyle = PEAK;
+                    ctx.fillText(text, labelX, py + r + 3);
+                    lastLabelRight = labelX + w;
+                }
+                ctx.restore();
+            });
+        }
+    };
+
+    /**
+     * Death and golden cross markers.
+     *
+     * Drawn as a dot at the point where the two averages met, not as a vertical
+     * line: the chart already carries two sets of vertical markers (halvings and
+     * Pi Cycle), and a third would turn the background into a lattice.
+     */
+    var dmaCrossMarkers = {
+        id: 'dmaCrossMarkers',
+        afterDatasetsDraw: function (c) {
+            var marks = c.$dmaCrosses;
+            if (!marks) return;
+
+            var fastIdx = c.$dmaFastIndex;
+            var slowIdx = c.$dmaSlowIndex;
+            if (fastIdx === undefined || slowIdx === undefined) return;
+
+            var labels = c.data.labels;
+            var slowData = c.data.datasets[slowIdx].data;
+            var ctx = c.ctx;
+
+            ['death', 'golden'].forEach(function (kind) {
+                (marks[kind] || []).forEach(function (date) {
+                    var i = labels.indexOf(date);
+                    if (i < 0) return;
+
+                    var v = slowData[i];
+                    if (v === null || v === undefined || !isFinite(v)) return;
+
+                    var px = c.scales.x.getPixelForValue(i);
+                    var py = c.scales.y.getPixelForValue(v);
+                    var area = c.chartArea;
+
+                    if (px < area.left || px > area.right) return;
+                    if (py < area.top || py > area.bottom) return;
+
+                    ctx.save();
+                    ctx.beginPath();
+                    ctx.arc(px, py, 4, 0, Math.PI * 2);
+                    ctx.fillStyle = kind === 'death' ? CROSS_DEATH : CROSS_GOLDEN;
+                    ctx.globalAlpha = 0.9;
+                    ctx.fill();
+                    ctx.lineWidth = 1;
+                    ctx.strokeStyle = '#ffffff';
+                    ctx.globalAlpha = 0.55;
+                    ctx.stroke();
+                    ctx.restore();
+                });
+            });
+        }
+    };
 
     /**
      * Vertical markers for Pi Cycle Top crossings.
@@ -366,6 +504,47 @@
         ma = padded.ma;
         var futureDays = padded.added;
 
+        // The projection has dates of its own and needs axis room to sit on. Extend
+        // the padded axis to reach it, but only while the extension stays
+        // proportionate — the same rule the halving padding follows, for the same
+        // reason: 24 months of empty axis would flatten a one-week view to a sliver.
+        var projection = (state.projection && data.projection && data.projection.labels && data.projection.labels.length)
+            ? data.projection
+            : null;
+
+        var projectionPad = 0;
+
+        if (projection) {
+            var projectionEnd = projection.labels[projection.labels.length - 1];
+            var lastLabel = labels[labels.length - 1];
+
+            if (projectionEnd > lastLabel) {
+                var currentEnd = new Date(lastLabel + 'T00:00:00Z').getTime();
+                var wantedEnd = new Date(projectionEnd + 'T00:00:00Z').getTime();
+                var needDays = Math.round((wantedEnd - currentEnd) / 86400000);
+
+                var realSpan = futureDays > 0
+                    ? Math.round((currentEnd - new Date(labels[0] + 'T00:00:00Z').getTime()) / 86400000) - futureDays
+                    : Math.round((currentEnd - new Date(labels[0] + 'T00:00:00Z').getTime()) / 86400000);
+
+                // Room already granted by the halving padding still counts.
+                var allowed = Math.max(0, Math.round(realSpan * 0.5) - futureDays);
+                var extra = Math.min(needDays, allowed);
+
+                for (var d = 1; d <= extra; d++) {
+                    labels.push(new Date(currentEnd + d * 86400000).toISOString().slice(0, 10));
+                    price.push(null);
+                    ma.push(null);
+                }
+
+                futureDays += extra;
+                projectionPad = extra;
+                projection.clipped = extra < needDays;
+            } else {
+                projection.clipped = false;
+            }
+        }
+
         // Keep an existing zoom across a redraw that only changed the y-axis
         // (log toggle), but reset it when the series itself is different.
         var keep = (view.active && chart && chart.$labels &&
@@ -419,14 +598,26 @@
             ' <span class="muted">(data to ' + shortDate(data.to) + ')</span>';
 
         renderStats(stats, data);
+        renderPeakTable(data);
+        renderProjection(data);
         var plotted = labels.length - futureDays;
         var statusText = plotted.toLocaleString('en-US') +
             (plotted === 1 ? ' day plotted' : ' days plotted');
 
         if (futureDays > 0) {
-            statusText += ' · axis extended to the projected next halving';
+            // Say which of the two reasons applies, since the padding now serves
+            // both and naming only one would be misleading.
+            var reasons = [];
+            if (projectionPad > 0) reasons.push('the 1\u00d7 projection');
+            if (futureDays > projectionPad) reasons.push('the projected next halving');
+
+            statusText += ' \u00b7 axis extended to fit ' + reasons.join(' and ');
+
+            if (projection && projection.clipped) {
+                statusText += ' (projection cut short to keep the scale readable)';
+            }
         } else if (state.halvings && nextHalving) {
-            statusText += ' · next halving ' + shortDate(nextHalving.date) + ' is out of range';
+            statusText += ' \u00b7 next halving ' + shortDate(nextHalving.date) + ' is out of range';
         }
 
         statusBase = statusText;
@@ -435,74 +626,148 @@
         var below = belowMask(labels, price, ma);
         var piData = data.pi || null;
         var showPi = state.pi && piData && piData.fast && piData.fast.length;
+        var dmaData = data.dma || null;
+        var showDma = state.dma && dmaData && dmaData.fast && dmaData.fast.length;
 
-        // The Pi arrays arrive for real days only, while labels carry the padded
-        // future. Pad them with nulls so every dataset is the same length: the
-        // zoom slices all of them by the same indices, and a shorter array would
-        // shift its line left against the price as soon as the window reached
-        // the projection.
-        if (showPi && futureDays > 0) {
-            piData = {
-                fast_days: piData.fast_days,
-                slow_days: piData.slow_days,
-                multiple: piData.multiple,
-                crosses: piData.crosses,
-                fast_now: piData.fast_now,
-                slow_now: piData.slow_now,
-                gap_pct: piData.gap_pct,
-                fast: piData.fast.concat(Array(futureDays).fill(null)),
-                slow: piData.slow.concat(Array(futureDays).fill(null))
-            };
+        // The projection has its own dates; align it to the axis and seed the last
+        // day that has a real average, so the dashed continuation begins exactly
+        // where the solid line ends instead of a day adrift. Built here, before
+        // the datasets, because `var` hoists a declaration but not its value.
+        var projectionData = null;
+
+        if (projection) {
+            var projByDate = {};
+            for (var pj = 0; pj < projection.labels.length; pj++) {
+                projByDate[projection.labels[pj]] = projection.ma[pj];
+            }
+
+            projectionData = labels.map(function (d) {
+                return Object.prototype.hasOwnProperty.call(projByDate, d) ? projByDate[d] : null;
+            });
+
+            for (var lj = labels.length - 1; lj >= 0; lj--) {
+                if (ma[lj] !== null && ma[lj] !== undefined) {
+                    projectionData[lj] = ma[lj];
+                    break;
+                }
+            }
         }
 
-        // Built as data, not as five literals, because the Pi Cycle pair is
-        // optional and everything downstream refers to datasets by index.
-        var datasets = [
-            {
-                label: 'Price below the average',
-                data: below,
-                borderWidth: 0,
-                pointRadius: 0,
-                fill: '+1',              // fill down to the average line
-                backgroundColor: 'rgba(247,147,26,0.38)',
-                spanGaps: false,
-                order: 3                 // drawn behind the strokes
-            },
-            {
-                label: '200-week average',
-                data: ma,
-                borderColor: ORANGE,
-                borderWidth: 2.4,
-                pointRadius: singlePoint ? 4 : 0,
-                pointHoverRadius: singlePoint ? 6 : 0,
-                pointBackgroundColor: ORANGE,
-                pointBorderColor: ORANGE,
-                fill: false,
-                spanGaps: false,
-                tension: 0,
-                order: 1
-            },
-            {
-                label: 'BTC price',
-                data: price,
-                borderColor: PRICE,
-                borderWidth: 1.15,
-                pointRadius: singlePoint ? 4 : 0,
-                pointHoverRadius: singlePoint ? 6 : 0,
-                pointBackgroundColor: PRICE,
-                pointBorderColor: PRICE,
-                fill: false,
-                tension: 0,
-                order: 0
+        // The Pi and 50/200-day arrays arrive for real days only, while labels
+        // carry the padded future. Pad them with nulls so every dataset is the
+        // same length: the zoom slices all of them by the same indices, and a
+        // shorter array would shift its line left against the price as soon as
+        // the window reached the projection.
+        if (futureDays > 0) {
+            if (showPi) {
+                piData = {
+                    fast_days: piData.fast_days,
+                    slow_days: piData.slow_days,
+                    multiple: piData.multiple,
+                    crosses: piData.crosses,
+                    fast_now: piData.fast_now,
+                    slow_now: piData.slow_now,
+                    gap_pct: piData.gap_pct,
+                    fast: piData.fast.concat(Array(futureDays).fill(null)),
+                    slow: piData.slow.concat(Array(futureDays).fill(null))
+                };
             }
-        ];
 
-        var belowIndex = 0;
-        var maIndex = 1;
-        var priceIndex = 2;
+            if (showDma) {
+                dmaData = {
+                    fast_days: dmaData.fast_days,
+                    slow_days: dmaData.slow_days,
+                    crosses: dmaData.crosses,
+                    fast_now: dmaData.fast_now,
+                    slow_now: dmaData.slow_now,
+                    state: dmaData.state,
+                    state_since: dmaData.state_since,
+                    price_vs_fast_pct: dmaData.price_vs_fast_pct,
+                    price_vs_slow_pct: dmaData.price_vs_slow_pct,
+                    fast: dmaData.fast.concat(Array(futureDays).fill(null)),
+                    slow: dmaData.slow.concat(Array(futureDays).fill(null))
+                };
+            }
+        }
+
+        // Built as data, not as literals, because the Pi Cycle pair and the
+        // 50/200 lines are both optional. Indices are recorded by key so the
+        // zoom and the fill never depend on which toggles are on.
+        var datasets = [];
+        var idx = {};
+
+        function add(key, def) {
+            idx[key] = datasets.length;
+            datasets.push(def);
+        }
+
+        add('below', {
+            label: 'Price below the average',
+            data: below,
+            borderWidth: 0,
+            pointRadius: 0,
+            fill: '+1',              // fill down to the average line
+            backgroundColor: 'rgba(247,147,26,0.38)',
+            spanGaps: false,
+            order: 3                 // drawn behind the strokes
+        });
+
+        add('ma', {
+            label: '200-week average',
+            data: ma,
+            borderColor: ORANGE,
+            borderWidth: 2.4,
+            pointRadius: singlePoint ? 4 : 0,
+            pointHoverRadius: singlePoint ? 6 : 0,
+            pointBackgroundColor: ORANGE,
+            pointBorderColor: ORANGE,
+            fill: false,
+            spanGaps: false,
+            tension: 0,
+            order: 1
+        });
+
+        add('price', {
+            label: 'BTC price',
+            data: price,
+            borderColor: PRICE,
+            borderWidth: 1.15,
+            pointRadius: singlePoint ? 4 : 0,
+            pointHoverRadius: singlePoint ? 6 : 0,
+            pointBackgroundColor: PRICE,
+            pointBorderColor: PRICE,
+            fill: false,
+            tension: 0,
+            order: 0
+        });
+
+        if (showDma) {
+            add('dmaFast', {                label: dmaData.fast_days + 'DMA',
+                data: dmaData.fast,
+                borderColor: DMA_FAST,
+                borderWidth: 1.2,
+                pointRadius: 0,
+                fill: false,
+                spanGaps: false,
+                tension: 0,
+                order: 2
+            });
+
+            add('dmaSlow', {
+                label: dmaData.slow_days + 'DMA',
+                data: dmaData.slow,
+                borderColor: DMA_SLOW,
+                borderWidth: 1.8,
+                pointRadius: 0,
+                fill: false,
+                spanGaps: false,
+                tension: 0,
+                order: 2
+            });
+        }
 
         if (showPi) {
-            datasets.push({
+            add('piFast', {
                 label: 'Pi Cycle ' + piData.fast_days + 'DMA',
                 data: piData.fast,
                 borderColor: PI,
@@ -514,7 +779,7 @@
                 order: 2
             });
 
-            datasets.push({
+            add('piSlow', {
                 label: '2 \u00d7 ' + piData.slow_days + 'DMA',
                 data: piData.slow,
                 borderColor: PI,
@@ -528,9 +793,28 @@
             });
         }
 
+        if (projectionData) {
+            add('projection', {
+                label: '200-week avg (projected)',
+                data: projectionData,
+                borderColor: ORANGE,
+                borderWidth: 1.8,
+                borderDash: [5, 4],
+                pointRadius: 0,
+                fill: false,
+                spanGaps: false,
+                tension: 0,
+                order: 2
+            });
+        }
+
+        var belowIndex = idx.below;
+        var maIndex = idx.ma;
+        var priceIndex = idx.price;
+
         var cfg = {
             type: 'line',
-            plugins: [halvingLines, piLines, pointLabels],
+            plugins: [halvingLines, piLines, dmaCrossMarkers, peakMarkers, pointLabels],
             data: {
                 labels: labels,
                 datasets: datasets
@@ -674,13 +958,17 @@
         chart.$log = state.log && !singlePoint;
         chart.$labelEveryTick = labelEveryTick;
 
-        // Everything the zoom needs to re-slice, in dataset order. The Pi Cycle
-        // pair is optional, so indices are recorded rather than assumed.
+        // Everything the zoom needs to re-slice, in dataset order. Both overlay
+        // pairs are optional, so indices are recorded rather than assumed.
         chart.$series = datasets.map(function (d) { return d.data; });
         chart.$belowIndex = belowIndex;
         chart.$maIndex = maIndex;
         chart.$priceIndex = priceIndex;
         chart.$piCrosses = showPi ? (piData.crosses || []) : [];
+        chart.$dmaCrosses = showDma ? (dmaData.crosses || null) : null;
+        chart.$dmaFastIndex = showDma ? idx.dmaFast : undefined;
+        chart.$dmaSlowIndex = showDma ? idx.dmaSlow : undefined;
+        chart.$peaks = (state.peaks && data.peaks && data.peaks.items) ? data.peaks.items : [];
 
         chart.update('none');
 
@@ -705,9 +993,54 @@
             stat('200-week average', money(stats.ma), 'ma') +
             stat('Price vs average', sign + premium.toFixed(1) + '%') +
             stat('Days below average', (stats.below_pct || 0).toFixed(1) + '%') +
+            dmaStat(data) +
             piStat(data);
 
         freshEl.textContent = 'Latest stored day: ' + shortDate(data.to) + '.';
+    }
+
+    /**
+     * Which 50/200-day regime we are in, and where price sits against both.
+     *
+     * The regime is a date-stamped fact (the last crossing), while "price below
+     * the 50/200" is a standing state that can be true without any crossing
+     * having happened — the two are shown separately for that reason.
+     */
+    function dmaStat(data) {
+        var dma = data.dma;
+        if (!state.dma || !dma || dma.fast_now === null || !dma.slow_now) {
+            return '';
+        }
+
+        var label = 'DMA ' + dma.fast_days + ' / ' + dma.slow_days;
+
+        // The headline is the standing state, because that is the day-to-day
+        // question ("is price below the averages?"); the regime is the rarer
+        // event and lives in the note.
+        var below = [];
+        if (dma.price_vs_fast_pct !== null && dma.price_vs_fast_pct < 0) {
+            below.push(dma.fast_days);
+        }
+        if (dma.price_vs_slow_pct !== null && dma.price_vs_slow_pct < 0) {
+            below.push(dma.slow_days);
+        }
+
+        var value = below.length === 2
+            ? 'Below both'
+            : (below.length === 1 ? 'Below ' + below[0] : 'Above both');
+
+        var note = '';
+
+        if (dma.state === 'death') {
+            note = 'death cross ' + shortDate(dma.state_since);
+        } else if (dma.state === 'golden') {
+            note = 'golden cross ' + shortDate(dma.state_since);
+        }
+
+        return '<div class="stat"><dt>' + label + '</dt>' +
+               '<dd class="dma">' + value +
+               (note !== '' ? '<small> ' + note + '</small>' : '') +
+               '</dd></div>';
     }
 
     /**
@@ -731,9 +1064,112 @@
                '</dd></div>';
     }
 
+    /**
+     * What 1x the 200-week average is now, and what it drifts to.
+     *
+     * The point of showing several dates rather than one number is that 1x is a
+     * moving level: a moving average is a lagged mean, so it keeps travelling
+     * even in a flat market, and its direction depends on which prices are
+     * leaving the window. A single target would imply a fixed goal that does not
+     * exist.
+     */
+    function renderProjection(data) {
+        if (!projSectionEl || !projTableBodyEl) return;
+
+        var projection = data.projection;
+
+        if (!state.projection || !projection || !projection.labels || !projection.labels.length) {
+            projSectionEl.hidden = true;
+            return;
+        }
+
+        projSectionEl.hidden = false;
+
+        projAssumptionEl.textContent =
+            'Assume ' + money(projection.assumed_price) + ' holds from ' +
+            shortDate(projection.from) + '. The line beyond the last real day is what the ' +
+            '200-week average becomes under that assumption.';
+
+        // A handful of milestones rather than every day: today, then roughly
+        // quarterly-ish steps across the projection.
+        var picks = [0];
+        var step = Math.max(1, Math.round(projection.labels.length / 5));
+        for (var i = step; i < projection.labels.length; i += step) picks.push(i);
+        picks.push(projection.labels.length - 1);
+
+        var seen = {};
+        var now = (data.stats && data.stats.price) || projection.assumed_price;
+        var html = '';
+
+        picks.forEach(function (i) {
+            if (seen[i]) return;
+            seen[i] = true;
+
+            var level = projection.ma[i];
+            if (level === null || level === undefined) return;
+
+            var needPct = (level / now - 1) * 100;
+
+            html += '<tr>' +
+                '<td data-label="When">' + shortDate(projection.labels[i]) + '</td>' +
+                '<td class="num" data-label="1&times; level">' + money(level) + '</td>' +
+                '<td class="num peak-mult" data-label="Price would need">' +
+                    (needPct >= 0 ? '+' : '') + needPct.toFixed(1) + '%</td>' +
+                '</tr>';
+        });
+
+        projTableBodyEl.innerHTML = html;
+    }
+
     function stat(label, value, cls) {
         return '<div class="stat"><dt>' + label + '</dt>' +
                '<dd' + (cls ? ' class="' + cls + '"' : '') + '>' + value + '</dd></div>';
+    }
+
+    /**
+     * The cycle-top table: each peak's price, the 200-week average on that day,
+     * the multiple between them, and how long price had been above the average.
+     *
+     * Peaks older than the average itself (it needs 1,400 days of history) show
+     * a dash. Printing a number there would be inventing one.
+     */
+    function renderPeakTable(data) {
+        if (!peakSectionEl || !peakTableBodyEl) return;
+
+        var rows = (state.peaks && data.peaks && data.peaks.vs_average) ? data.peaks.vs_average : [];
+
+        if (!rows.length) {
+            peakSectionEl.hidden = true;
+            return;
+        }
+
+        var html = '';
+        var missing = 0;
+
+        rows.forEach(function (p) {
+            var hasAverage = p.multiple !== null && p.multiple !== undefined;
+
+            if (!hasAverage) missing++;
+
+            html += '<tr>' +
+                '<td data-label="Peak">' + shortDate(p.date) + '</td>' +
+                '<td class="num" data-label="Price">' + money(p.usd) + '</td>' +
+                '<td class="num' + (hasAverage ? '' : ' na') + '" data-label="200-week avg">' +
+                    (hasAverage ? money(p.ma) : '\u2014') + '</td>' +
+                '<td class="num peak-mult' + (hasAverage ? '' : ' na') + '" data-label="\u00d7 average">' +
+                    (hasAverage ? p.multiple.toFixed(2) + '\u00d7' : '\u2014') + '</td>' +
+                '<td class="num' + (p.days_above === null ? ' na' : '') + '" data-label="Days above">' +
+                    (p.days_above === null ? '\u2014' : p.days_above.toLocaleString('en-US')) + '</td>' +
+                '</tr>';
+        });
+
+        peakTableBodyEl.innerHTML = html;
+        peakSectionEl.hidden = false;
+
+        peakNoteEl.textContent = missing > 0
+            ? 'The 200-week average needs 1,400 days of history, so it does not exist before mid-2014. The '
+                + missing + ' earlier top' + (missing === 1 ? '' : 's') + ' above predate it and have no multiple.'
+            : '"Days above" counts from the day price last crossed above the 200-week average to the peak.';
     }
 
     // ------------------------------------------------------------------ zoom
@@ -1157,6 +1593,15 @@
         var piBox = document.getElementById('pi');
         if (piBox) piBox.checked = state.pi;
 
+        var dmaBox = document.getElementById('dma');
+        if (dmaBox) dmaBox.checked = state.dma;
+
+        var peaksBox = document.getElementById('peaks');
+        if (peaksBox) peaksBox.checked = state.peaks;
+
+        var projBox = document.getElementById('projection');
+        if (projBox) projBox.checked = state.projection;
+
         document.querySelectorAll('[data-mode]').forEach(function (btn) {
             btn.addEventListener('click', function () {
                 document.querySelectorAll('[data-mode]').forEach(function (b) {
@@ -1193,6 +1638,46 @@
                 load();
             });
         });
+
+        var peaksToggle = document.getElementById('peaks');
+        if (peaksToggle) {
+            peaksToggle.addEventListener('change', function () {
+                state.peaks = peaksToggle.checked;
+                // The markers are drawn by a plugin reading the chart instance,
+                // so a redraw is enough; no refetch.
+                if (lastData) {
+                    draw(lastData);
+                } else {
+                    load();
+                }
+            });
+        }
+
+        var projToggle = document.getElementById('projection');
+        if (projToggle) {
+            projToggle.addEventListener('change', function () {
+                state.projection = projToggle.checked;
+                // The axis may grow or shrink to fit the projection, so rebuild.
+                if (lastData) {
+                    draw(lastData);
+                } else {
+                    load();
+                }
+            });
+        }
+
+        var dmaToggle = document.getElementById('dma');
+        if (dmaToggle) {
+            dmaToggle.addEventListener('change', function () {
+                state.dma = dmaToggle.checked;
+                // The dataset set changes, so rebuild rather than toggle a scale.
+                if (lastData) {
+                    draw(lastData);
+                } else {
+                    load();
+                }
+            });
+        }
 
         var piToggle = document.getElementById('pi');
         if (piToggle) {

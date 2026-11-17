@@ -21,6 +21,13 @@ no frameworks and no build step.
   `0` to reset (see [Zooming](#zooming))
 - Overlays the Pi Cycle Top indicator — 111DMA against 2 × 350DMA — with the
   historical crossings marked (see [Pi Cycle Top](#pi-cycle-top))
+- Overlays the 50-day and 200-day averages, marking golden and death crosses
+  (see [50/200-day averages and crosses](#50200-day-averages-and-crosses))
+- Marks the peak of every past market cycle, detected from the data rather than
+  hardcoded (see [Cycle tops](#cycle-tops))
+- Projects 1× the 200-week average forward under a stated assumption, and says
+  plainly that it is arithmetic rather than a forecast
+  (see [1× the 200-week average](#1-the-200-week-average-projection))
 
 ## Zooming
 
@@ -102,6 +109,10 @@ src/MovingAverage.php       the average itself
 src/Importer.php            download, normalise, store
 tests/MovingAverageTest.php plain-PHP tests for the average
 tests/PiCycleTest.php       plain-PHP tests for the Pi Cycle indicator
+tests/MovingAveragesTest.php plain-PHP tests for the 50/200-day averages
+tests/CyclePeaksTest.php    plain-PHP tests for cycle-top detection
+tests/PeakJourneyTest.php   plain-PHP tests for peak-vs-average analysis
+tests/ProjectionTest.php    plain-PHP tests for the 1x projection
 ```
 
 ## The 200-week average: which definition?
@@ -153,6 +164,159 @@ window counts days rather than observations.
 
 The source can lag spot by a day or two. The page shows the latest stored day
 so this is visible rather than assumed.
+
+### Peak vs the 200-week average
+
+Below the stat cards, a table answers how far each top ran above the average:
+
+| Peak | Price | 200-week avg | × average | Days above |
+|------|-------|--------------|-----------|------------|
+| 11 Jun 2011 | $33.80 | — | — | — |
+| 5 Dec 2013 | $1,137 | — | — | — |
+| 17 Dec 2017 | $19,280 | $1,242 | 15.52× | 808 |
+| 9 Nov 2021 | $67,562 | $17,369 | 3.89× | 600 |
+| 7 Oct 2025 | $124,777 | $53,730 | 2.32× | 722 |
+
+**× average** is the peak price divided by the 200-week average *on that day*.
+**Days above** counts from the day price last crossed above the average to the
+peak — the length of the run that carried it there.
+
+The two early tops show a dash, and that is not a formatting choice: the
+200-week average needs 1,400 days of history, so it does not exist before
+mid-2014. The 2011 and 2013 peaks predate it entirely. `PeakJourney` returns
+nulls for them and the table prints an em dash, because a number there would be
+invented.
+
+The declining multiple — 15.5×, then 3.9×, then 2.3× — is the familiar
+diminishing-returns pattern of a maturing asset. It is worth noting what that
+does *not* mean: three points is not a trend, and nothing here forecasts a
+fourth.
+
+## 1× the 200-week average (projection)
+
+Toggled by **1× projection** (on by default). A dashed orange line continues the
+200-week average beyond the last real day, and a table lists what 1× would be at
+several future dates.
+
+**This is arithmetic, not a forecast.** Nothing here predicts where Bitcoin will
+trade. A moving average is a lagged mean, so given an assumption about future
+prices the average itself follows deterministically. The assumption is stated on
+the page and in the API response, because it is the only thing making the line
+mean anything:
+
+> the price holds at its latest close.
+
+Under that assumption the average still moves — the window retires old prices and
+admits the assumed one. Which produces a result worth seeing, because it is not
+what most people expect:
+
+* **When the window is discarding prices BELOW the current price, the average
+  RISES even in a flat market.** In November 2026 the 200-week window is shedding
+  2022–23's lows, so a flat $65.3k carries the average from $67.9k toward $77k
+  over the following year. Price falls *further behind* the average, not closer.
+* Once those highs leave the window too, the average turns back down — the
+  projection peaks around mid-2028 and declines after.
+
+So "1× the average" is not a fixed level to aim at. It is a moving target, and
+its direction depends entirely on which prices are leaving the window. The table
+shows the level at several dates rather than one number for exactly that reason.
+
+Both average definitions are supported, by appending synthetic days and running
+the **same** `MovingAverage` used for the chart. A projected line that quietly
+used a different formula from the line it continues would be worse than no
+projection at all.
+
+**The line is capped, on purpose.** It extends at most half the visible span —
+the same rule the halving padding follows. On the full-history view that is the
+whole two years; on a 1Y view it is six months; on a 1W view it barely appears.
+Without the cap, two years of projection would flatten a one-week chart to a
+sliver. When the cap bites, the status line says so rather than leaving a
+mysteriously short line.
+
+## Cycle tops
+
+Toggled by **Cycle tops** (on by default). Amber dots mark the peaks of past
+market cycles, labelled with the price.
+
+These are **detected from the data, not hardcoded**. A day qualifies when all
+three hold:
+
+1. it rose into the day,
+2. it is a new all-time high, and
+3. no day in the following 365 days trades higher.
+
+In one sentence: **a record high that went unbeaten for a year.** Every Bitcoin
+cycle top satisfied that, and nothing else did — which is why the rule
+reproduces the peaks instead of being tuned to them.
+
+On this data it finds exactly five:
+
+| Date | Price |
+|------|-------|
+| 2011-06-11 | $33.80 |
+| 2013-12-05 | $1,136.90 |
+| 2017-12-17 | $19,279.90 |
+| 2021-11-09 | $67,562.17 |
+| 2025-10-07 | $124,776.68 |
+
+Each rule exists because a simpler version drew a plausible-looking chart that
+was wrong:
+
+* Rule 1 collapses a plateau to one peak, on the day the price arrived, instead
+  of one per day.
+* Rule 2 rejects a recovery. Returning to a level the price already sat at is not
+  a top, and a purely forward-looking test marks it, because nothing ahead
+  happens to exceed it.
+* Rule 3 is the prominence test. Without it the April 2013 and April 2021 double
+  tops are promoted to cycle tops, and with a 180-day window so is the March
+  2024 high — all of which were beaten within the year that followed.
+
+`php tests/CyclePeaksTest.php` pins each rule, including the case that motivated
+rule 2.
+
+Two limits, stated rather than hidden:
+
+* **Rule 3 looks forward**, so a peak inside the last 365 days cannot be
+  confirmed — it may still be exceeded. Such peaks are reported with
+  `confirmed: false` and drawn faded, so a forming top stays visible without
+  being presented as history. The October 2025 high currently has a full year of
+  follow-through, so it is confirmed.
+* **These are daily average prices**, not intraday highs, so the date can differ
+  by a day or so from sources quoting the highest tick.
+
+## 50/200-day averages and crosses
+
+A third overlay, toggled by **50/200 DMA** (on by default): the 50-day and
+200-day simple moving averages on **daily** closes — note that these are days,
+not the weeks used by the 200-week average.
+
+Crossings are marked with a dot where the two lines meet, red for a **death
+cross** (50DMA crossing below the 200DMA) and green for a **golden cross** (50DMA
+crossing above). They are dots rather than vertical lines because the chart
+already carries two sets of vertical markers; a third would become a lattice.
+
+Three distinctions the code and tests hold to:
+
+* **A cross is an event, a level is a state.** "Price below the 200DMA" can last
+  a year; "death cross" is the single day the relation changed. Reporting the
+  state as the event would turn 13 signals into thousands.
+* **Touching counts.** The two averages converge before they separate, so the
+  comparison is tracked as a sign (+1 / 0 / −1), not as a boolean. As a boolean,
+  "equal then below" reads as no change on both days and the very day of the
+  cross is dropped.
+* **The relations are independent.** A golden cross (50 above 200) can coexist
+  with price below both — as it did at the time of writing — which is exactly
+  the "cross forming" case. The stat card states them separately for that
+  reason: headline is where price sits, note is the regime and its date.
+
+On this data that yields 13 deaths and 13 goldens between 2011 and 2026, each a
+verified one-day transition. The exact dates differ from other chart sites
+because the underlying series is blockchain.info's **daily average** price, not
+an exchange close; the crossing is correct for this data, which is not a claim
+that it matches anyone else's date.
+
+The lines are dense across 13 years and read best zoomed in, which is what the
+zoom controls are for.
 
 ## Pi Cycle Top
 
@@ -263,6 +427,24 @@ dates for every historical 111DMA-over-2×350DMA crossing, plus `fast_now`,
 `slow_now` and `gap_pct` for the latest day. Like `halvings`, `crosses` is not
 windowed — the client decides which markers fall inside the visible range.
 
+The `dma` object carries the 50/200-day overlay in the same shape: `fast` and
+`slow` arrays, `crosses` split into `death` and `golden` date lists, `fast_now`
+and `slow_now`, `state` (`"death"`, `"golden"` or null) with `state_since`, and
+`price_vs_fast_pct` / `price_vs_slow_pct` for the latest close against each
+line — negative meaning below.
+
+`peaks.items` lists the detected cycle tops as `{date, usd, confirmed}`, with
+`peaks.window_days` stating the prominence window used. Also not windowed.
+
+`peaks.vs_average` adds each peak's `ma` (the 200-week average that day),
+`multiple` (peak ÷ average), `days_above` and `crossed_above`. The first two are
+null for peaks older than the average itself.
+
+`projection` carries the 1× projection: `assumption` (the sentence the numbers
+depend on), `assumed_price`, `from`, and parallel `labels` / `ma` / `ratio`
+arrays. `ratio` is the assumed price divided by the projected average — below
+1.0 means price is under it.
+
 ## Refreshing the data
 
 `bin/import.php` is idempotent — rows are upserted by date, so re-running only
@@ -298,11 +480,17 @@ than implying it is current, so a stale import is visible instead of silent.
 php tests/MovingAverageTest.php
 php tests/HalvingsTest.php
 php tests/PiCycleTest.php
+php tests/MovingAveragesTest.php
+php tests/CyclePeaksTest.php
+php tests/PeakJourneyTest.php
+php tests/ProjectionTest.php
 ```
 
 17 assertions on week alignment, exclusion of the partial trailing week, and
 both averaging modes; 20 on the halving schedule and projection; 14 on the Pi
-Cycle windows, the price multiple and crossing detection. No dependencies.
+Cycle windows, the price multiple and crossing detection; 16 on the 50/200-day
+windows and cross direction; 20 on cycle-peak detection; 17 on the peak-vs-average
+multiples and journey lengths; 23 on the 1× projection. No dependencies.
 
 ## Limitations
 
