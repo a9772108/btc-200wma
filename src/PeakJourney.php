@@ -15,6 +15,12 @@ namespace Btc200Wma;
  *  - the JOURNEY — days spent continuously above the average before the peak,
  *    starting from the last day price was at or below it.
  *
+ * A third number counts the opposite: how many days price closed UNDER the
+ * average across the whole cycle leading to the peak, measured from the previous
+ * peak. That is the bear phase of the cycle, and it is deliberately not "the
+ * days immediately before the crossing": price whipsaws across a moving average
+ * constantly, so that measure returns 2, 5 and 47 days and tells you nothing.
+ *
  * A limitation that cannot be engineered away, only reported: the 200-week
  * average needs 1,400 days of history, so it does not exist before mid-2014.
  * The 2011 and 2013 peaks predate it and have no multiple. They are returned
@@ -30,7 +36,8 @@ final class PeakJourney
      * @return list<array{
      *     date:string, usd:float, confirmed:bool,
      *     ma:?float, multiple:?float,
-     *     days_above:?int, crossed_above:?string
+     *     days_above:?int, crossed_above:?string,
+     *     cycle_days:?int, cycle_days_below:?int
      * }>
      */
     public function annotate(array $peaks, array $series): array
@@ -42,7 +49,7 @@ final class PeakJourney
 
         $out = [];
 
-        foreach ($peaks as $peak) {
+        foreach ($peaks as $n => $peak) {
             $i = $byDate[$peak['date']] ?? null;
             $ma = $i === null ? null : $series[$i]['ma'];
 
@@ -54,6 +61,8 @@ final class PeakJourney
                 'multiple'     => ($ma === null || $ma <= 0.0) ? null : $peak['usd'] / $ma,
                 'days_above'   => null,
                 'crossed_above' => null,
+                'cycle_days'   => null,
+                'cycle_days_below' => null,
             ];
 
             // Only a peak that falls inside the averaged range can have a
@@ -66,6 +75,36 @@ final class PeakJourney
                     // from there to the peak, inclusive.
                     $entry['days_above']    = $i - $lastBelow;
                     $entry['crossed_above'] = $series[$lastBelow + 1]['date'] ?? null;
+                }
+            }
+
+            // The bear phase: days below the average since the previous peak.
+            if ($n > 0 && $i !== null) {
+                $from = $byDate[$peaks[$n - 1]['date']] ?? null;
+
+                if ($from !== null && $from < $i) {
+                    $below = 0;
+                    $comparable = 0;
+
+                    for ($k = $from + 1; $k <= $i; $k++) {
+                        if ($series[$k]['ma'] === null) {
+                            continue;
+                        }
+
+                        $comparable++;
+
+                        if ($series[$k]['usd'] <= $series[$k]['ma']) {
+                            $below++;
+                        }
+                    }
+
+                    // Null, not zero, when the average did not exist for any day
+                    // of the window: a cycle that predates the average has no
+                    // bear phase to count.
+                    if ($comparable > 0) {
+                        $entry['cycle_days']       = $i - $from;
+                        $entry['cycle_days_below'] = $below;
+                    }
                 }
             }
 

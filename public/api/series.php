@@ -260,6 +260,10 @@ try {
                     'multiple'      => $p['multiple'] === null ? null : round($p['multiple'], 2),
                     'days_above'    => $p['days_above'],
                     'crossed_above' => $p['crossed_above'],
+                    // The bear phase: days price closed under the average between
+                    // the previous top and this one.
+                    'cycle_days'    => $p['cycle_days'],
+                    'cycle_days_below' => $p['cycle_days_below'],
                 ],
                 $peakRows
             ),

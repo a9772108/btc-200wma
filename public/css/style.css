@@ -280,6 +280,12 @@ main {
    "not applicable" rather than "none". */
 .peak-table td.na { color: var(--muted); }
 
+.peak-table .pct {
+    color: var(--muted);
+    font-size: 0.8em;
+    font-weight: 600;
+}
+
 .peak-note {
     margin: 8px 0 0;
     max-width: 78ch;

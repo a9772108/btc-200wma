@@ -139,6 +139,7 @@ php bin/import.php</pre>
                         <th scope="col" class="num">200-week avg</th>
                         <th scope="col" class="num">&times; average</th>
                         <th scope="col" class="num">Days above</th>
+                        <th scope="col" class="num">Days below</th>
                     </tr>
                 </thead>
                 <tbody></tbody>

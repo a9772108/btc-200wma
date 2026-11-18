@@ -169,17 +169,31 @@ so this is visible rather than assumed.
 
 Below the stat cards, a table answers how far each top ran above the average:
 
-| Peak | Price | 200-week avg | × average | Days above |
-|------|-------|--------------|-----------|------------|
-| 11 Jun 2011 | $33.80 | — | — | — |
-| 5 Dec 2013 | $1,137 | — | — | — |
-| 17 Dec 2017 | $19,280 | $1,242 | 15.52× | 808 |
-| 9 Nov 2021 | $67,562 | $17,369 | 3.89× | 600 |
-| 7 Oct 2025 | $124,777 | $53,730 | 2.32× | 722 |
+| Peak | Price | 200-week avg | × average | Days above | Days below |
+|------|-------|--------------|-----------|------------|------------|
+| 11 Jun 2011 | $33.80 | — | — | — | — |
+| 5 Dec 2013 | $1,137 | — | — | — | — |
+| 17 Dec 2017 | $19,280 | $1,242 | 15.52× | 808 | 32 (2.2%) |
+| 9 Nov 2021 | $67,562 | $17,369 | 3.89× | 600 | 6 (0.4%) |
+| 7 Oct 2025 | $124,777 | $53,730 | 2.32× | 722 | 320 (22.4%) |
 
 **× average** is the peak price divided by the 200-week average *on that day*.
 **Days above** counts from the day price last crossed above the average to the
 peak — the length of the run that carried it there.
+
+**Days below** is the other half of the cycle: every day price closed *under*
+the average between the previous top and this one, with its share of the cycle
+in brackets. That is the bear phase — and the three cycles differ sharply.
+Only 6 days of the 2017–2021 cycle were spent below the average (the March 2020
+break, and nothing else; 2018 never closed under it, because the average was
+still around $3,200 at the December low). The present cycle has spent 320 days
+below, 22.4% of it.
+
+It is worth being precise about what "Days below" is **not**: it is not the
+stretch immediately before the crossing. Price whipsaws across a moving average
+constantly, so that measure returns 2, 5 and 47 days for the three peaks —
+arithmetically correct and practically meaningless. Measuring across the whole
+cycle is what carries information.
 
 The two early tops show a dash, and that is not a formatting choice: the
 200-week average needs 1,400 days of history, so it does not exist before
@@ -437,8 +451,10 @@ line — negative meaning below.
 `peaks.window_days` stating the prominence window used. Also not windowed.
 
 `peaks.vs_average` adds each peak's `ma` (the 200-week average that day),
-`multiple` (peak ÷ average), `days_above` and `crossed_above`. The first two are
-null for peaks older than the average itself.
+`multiple` (peak ÷ average), `days_above` and `crossed_above`, plus
+`cycle_days` and `cycle_days_below` — the length of the cycle since the previous
+top and how many of those days closed under the average. The 200-week fields are
+null for peaks older than that average itself.
 
 `projection` carries the 1× projection: `assumption` (the sentence the numbers
 depend on), `assumed_price`, `from`, and parallel `labels` / `ma` / `ratio`
@@ -489,8 +505,9 @@ php tests/ProjectionTest.php
 17 assertions on week alignment, exclusion of the partial trailing week, and
 both averaging modes; 20 on the halving schedule and projection; 14 on the Pi
 Cycle windows, the price multiple and crossing detection; 16 on the 50/200-day
-windows and cross direction; 20 on cycle-peak detection; 17 on the peak-vs-average
-multiples and journey lengths; 23 on the 1× projection. No dependencies.
+windows and cross direction; 20 on cycle-peak detection; 21 on the peak-vs-average
+multiples, journey lengths and cycle day counts; 23 on the 1× projection.
+No dependencies.
 
 ## Limitations
 

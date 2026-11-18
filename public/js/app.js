@@ -1160,16 +1160,32 @@
                     (hasAverage ? p.multiple.toFixed(2) + '\u00d7' : '\u2014') + '</td>' +
                 '<td class="num' + (p.days_above === null ? ' na' : '') + '" data-label="Days above">' +
                     (p.days_above === null ? '\u2014' : p.days_above.toLocaleString('en-US')) + '</td>' +
+                '<td class="num' + (p.cycle_days_below === null || p.cycle_days_below === undefined ? ' na' : '') + '" data-label="Days below"><span>' +
+                    (p.cycle_days_below === null || p.cycle_days_below === undefined
+                        ? '\u2014'
+                        : p.cycle_days_below.toLocaleString('en-US') +
+                          ' <span class="pct">(' + (p.cycle_days ? (p.cycle_days_below / p.cycle_days * 100).toFixed(1).replace('.0', '') : '0') + '%)</span>') +
+                '</span></td>' +
                 '</tr>';
         });
 
         peakTableBodyEl.innerHTML = html;
         peakSectionEl.hidden = false;
 
-        peakNoteEl.textContent = missing > 0
-            ? 'The 200-week average needs 1,400 days of history, so it does not exist before mid-2014. The '
-                + missing + ' earlier top' + (missing === 1 ? '' : 's') + ' above predate it and have no multiple.'
-            : '"Days above" counts from the day price last crossed above the 200-week average to the peak.';
+        var note = '';
+
+        note += '"Days above" counts from the day price last crossed above the 200-week average to the peak.';
+
+        note += ' "Days below" counts every day price closed under that average between the previous top'
+            + ' and this one — the bear phase of the cycle — with its share of the cycle in brackets.';
+
+        if (missing > 0) {
+            note += ' The 200-week average needs 1,400 days of history, so it does not exist before mid-2014:'
+                + ' the ' + missing + ' earlier top' + (missing === 1 ? '' : 's') + ' above predate it, so those'
+                + ' cells stay blank rather than borrow an average from years later.';
+        }
+
+        peakNoteEl.textContent = note;
     }
 
     // ------------------------------------------------------------------ zoom
